@@ -16,7 +16,7 @@ params.vcf_regex = ~/_chr(\p{Alnum}+)$/
 //Recombination rate maps:
 params.recmap_glob = "${projectDir}/"
 //Regex for extracting chromosome from recombination rate map filename:
-params.recmap_regex = ~/[.]chr(\p{Alnum}+)[.]/
+params.recmap_regex = ~/chr([0-9XY_par]+)/
 //Archaic VCFs:
 params.arcvcf_glob = "${projectDir}/archaic_VCFs/*.vcf.gz"
 
@@ -31,6 +31,7 @@ Channel
    .fromPath(params.vcf_glob, checkIfExists: true)
    .ifEmpty { error "Unable to find VCFs matching glob: ${params.vcf_glob}" }
    .map { a -> [ (a.getSimpleName() =~ params.vcf_regex)[0][1], a] }
+   .ifEmpty { error "Regex failed to extract chromosome ID from VCF: ${params.vcf_regex}" }
    .tap { perchrom_vcfs }
    .subscribe { println "Added ${it[1]} to perchrom_vcfs channel" }
 
@@ -38,6 +39,7 @@ Channel
    .fromPath(params.vcf_glob+'.tbi', checkIfExists: true)
    .ifEmpty { error "Unable to find VCF indices matching glob: ${params.vcf_glob}.tbi" }
    .map { a -> [ (a.getSimpleName() =~ params.vcf_regex)[0][1], a] }
+   .ifEmpty { error "Regex failed to extract chromosome ID from VCF index: ${params.vcf_regex}" }
    .tap { perchrom_tbis }
    .subscribe { println "Added ${it[1]} to perchrom_tbis channel" }
 
@@ -45,7 +47,8 @@ Channel
 Channel
    .fromPath(params.recmap_glob, checkIfExists: true)
    .ifEmpty { error "Unable to find recombination rate map files matching glob: ${params.recmap_glob}" }
-   .map { a -> [ (a.getName() =~ params.recmap_regex)[0][1], a] }
+   .map { a -> [ (a =~ params.recmap_regex)[0][1], a] }
+   .ifEmpty { error "Regex failed to extract chromosome ID from VCF: ${params.recmap_glob} =~ ${params.recmap_regex}" }
    .tap { recmaps }
    .subscribe { println "Added chr${it[0]} recombination rate map (${it[1]}) to recmaps channel" }
 
@@ -58,17 +61,28 @@ Channel
    .tap { sprime_pops }
    .subscribe { println "Added ${it} to sprime_pops channel" }
 
-//Set up the channel of archaic VCFs and their indices:
+//Set up the channels of archaic VCFs and their indices:
 Channel
-   .fromPath(params.arcvcf_glob+'*', checkIfExists: true)
-   .ifEmpty { error "Unable to find archaic VCFs and their indices matching glob: ${params.arcvcf_glob}*" }
+   .fromPath(params.arcvcf_glob, checkIfExists: true)
+   .ifEmpty { error "Unable to find archaic VCFs matching glob: ${params.arcvcf_glob}" }
+   .map { a -> [ (a.getSimpleName() =~ params.vcf_regex)[0][1], a] }
+   .ifEmpty { error "Regex failed to extract chromosome ID from archaic VCF: ${params.vcf_regex}" }
    .tap { archaic_vcfs }
-   .subscribe { println "Added ${it} to archaic_vcfs channel" }
+   .subscribe { println "Added ${it[1]} to archaic_vcfs channel" }
+
+Channel
+   .fromPath(params.arcvcf_glob+'.tbi', checkIfExists: true)
+   .ifEmpty { error "Unable to find archaic VCF indices matching glob: ${params.arcvcf_glob}.tbi" }
+   .map { a -> [ (a.getSimpleName() =~ params.vcf_regex)[0][1], a] }
+   .ifEmpty { error "Regex failed to extract chromosome ID from archaic VCF index: ${params.vcf_regex}" }
+   .tap { archaic_tbis }
+   .subscribe { println "Added ${it[1]} to archaic_tbis channel" }
 
 num_autosomes = params.autosomes.tokenize(',').size()
 
-//Set up the file channels for the metadata file and the annotation GFF:
+//Set up the file channels for the metadata files and the annotation GFF:
 metadata = file(params.metadata_file, checkIfExists: true)
+archaic_metadata = file(params.arc_metadata_file, checkIfExists: true)
 annotation_gff = file(params.annotation_gff, checkIfExists: true)
 
 //Default parameter values:
@@ -114,7 +128,20 @@ params.sprimegenes_timeout = '24h'
 perchrom_vcfs
    .join(perchrom_tbis, by: 0, failOnDuplicate: true, failOnMismatch: true)
    .filter({ params.autosomes.tokenize(',').contains(it[0]) })
-   .tap { perchrom_vcfs_subset }
+   .set { perchrom_vcfs_subset }
+
+//Do the same for the archaic VCF channel:
+archaic_vcfs
+   .join(archaic_tbis, by: 0, failOnDuplicate: true, failOnMismatch: true)
+   .filter({ params.autosomes.tokenize(',').contains(it[0]) })
+   .flatMap({ [it[1], it[2]] })
+   .collect()
+   .set { archaic_vcfs_autosomes }
+
+//Retain only the autosomes for the recombination rate maps:
+recmaps
+   .filter({ params.autosomes.tokenize(',').contains(it[0]) })
+   .set { recmaps_autosomes }
 
 process sprime_vcf_subset {
    tag "${pop} chr${chrom}"
@@ -129,8 +156,8 @@ process sprime_vcf_subset {
    publishDir path: "${params.output_dir}/logs", mode: 'copy', pattern: '*_samples.tsv', saveAs: { 'chr'+chrom+'_'+it }
 
    input:
-   tuple val(chrom), path(input_vcf), path(input_tbi) from perchrom_vcfs_subset
-   each val(pop) from sprime_pops
+   tuple val(pop), val(chrom), path(input_vcf), path(input_tbi) from sprime_pops.combine(perchrom_vcfs_subset)
+//   each pop from sprime_pops
    path metadata
 
    output:
@@ -168,7 +195,7 @@ process concat_input_vcf {
    publishDir path: "${params.output_dir}/logs", mode: 'copy', pattern: '*.std{err,out}'
 
    input:
-   tuple val(pop), path("*") from Sprime_perchrom_vcfs.groupTuple(by: 0, size: num_autosomes)
+   tuple val(pop), path("*"), path("*") from Sprime_perchrom_vcfs.groupTuple(by: 0, size: num_autosomes)
 
    output:
    tuple path("bcftools_concat_Sprime_${pop}.stderr"), path("bcftools_concat_Sprime_${pop}.stdout") into concat_input_vcf_logs
@@ -197,8 +224,12 @@ process sprime {
    publishDir path: "${params.output_dir}/Sprime", mode: 'copy', pattern: '*.score'
 
    input:
-   tuple val(pop), path("${pop}_nomissinggenos.vcf.gz"), path("${pop}_nomissinggenos.vcf.gz.tbi"), path("${pop}_outgroup_samples.tsv") from Sprime_vcfs.join(Sprime_outgroup.unique(), by: 0, failOnDuplicate: true, failOnMismatch: true)
-   each tuple val(chrom), path(recmap) from recmaps.filter({ params.autosomes.tokenize(',').contains(it[0]) })
+   tuple val(pop), path("${pop}_nomissinggenos.vcf.gz"), path("${pop}_nomissinggenos.vcf.gz.tbi"), path("${pop}_outgroup_samples.tsv"), val(chrom), path(recmap) from Sprime_vcfs
+      .join(Sprime_outgroup
+         .groupTuple(by: 0, size: num_autosomes)
+         .map({ [it[0], it[1].take(1)] }), by: 0, failOnDuplicate: true, failOnMismatch: true)
+      .combine(recmaps_autosomes)
+//   each tuple val(chrom), path(recmap) from recmaps.filter({ params.autosomes.tokenize(',').contains(it[0]) })
 
    output:
    tuple path("Sprime_${pop}_chr${chrom}.stderr"), path("Sprime_${pop}_chr${chrom}.stdout"), path("${pop}_chr${chrom}_Sprime.log") into Sprime_logs
@@ -226,8 +257,8 @@ process sprime_matchrate {
 
    input:
    tuple val(pop), path("*") from Sprime_scores_matchrate.groupTuple(by: 0, size: num_autosomes)
-   path("*") from archaic_vcfs.filter({ params.autosomes.tokenize(',').contains(it[0]) }).collect({ it[1] })
-   path metadata
+   path("*") from archaic_vcfs_autosomes
+   path archaic_metadata
 
    output:
    path("${pop}_autosomes_Sprime_matches.tsv.gz") into Sprime_matches
@@ -241,9 +272,9 @@ process sprime_matchrate {
    for chr in {!{params.autosomes}};
       do
       #Establish the set of Sprime sites for this population and chromosome:
-      fgrep -v "#CHROM" !{pop}_chr${chr}_Sprime.score | \
+      fgrep -v "CHROM" !{pop}_chr${chr}_Sprime.score | \
          cut -f1,2 > !{pop}_chr${chr}_Sprime_sites.tsv
-      !{projectDir}/HumanPopGenScripts/Sprime/archaicMatchSprime.awk -v "spop=!{pop}" !{metadata} \
+      !{projectDir}/HumanPopGenScripts/Sprime/archaicMatchSprime.awk -v "spop=!{pop}" !{archaic_metadata} \
          <(bcftools view -R !{pop}_chr${chr}_Sprime_sites.tsv -T !{pop}_chr${chr}_Sprime_sites.tsv *_chr${chr}.vcf.gz) \
          !{pop}_chr${chr}_Sprime.score
    done | \
@@ -269,7 +300,13 @@ process sprime_project {
    publishDir path: "${params.output_dir}/Sprime", mode: 'copy', pattern: '*.bed'
 
    input:
-   tuple val(pop), path("*") from Sprime_scores_project.groupTuple(by: 0, size: num_autosomes).join(Sprime_perchrom_vcfs_project.groupTuple(by: 0, size: num_autosomes), by: 0, failOnDuplicate: true, failOnMismatch: true).join(Sprime_outgroup_project.unique(), by: 0, failOnDuplicate: true, failOnMismatch: true)
+   tuple val(pop), path("*"), path("*"), path("*"), path("*") from Sprime_scores_project
+      .groupTuple(by: 0, size: num_autosomes)
+      .join(Sprime_perchrom_vcfs_project
+         .groupTuple(by: 0, size: num_autosomes), by: 0, failOnDuplicate: true, failOnMismatch: true)
+      .join(Sprime_outgroup_project
+         .groupTuple(by: 0, size: num_autosomes)
+         .map({ [it[0], it[1].take(1)]}), by: 0, failOnDuplicate: false, failOnMismatch: true)
 
    output:
    path("${pop}_Sprime_tracts_perSample.bed") into Sprime_project_BEDs
@@ -301,8 +338,14 @@ process sprime_tractfreqs {
    publishDir path: "${params.output_dir}/Sprime", mode: 'copy', pattern: '*.tsv.gz'
 
    input:
-   tuple val(pop), path("*") from Sprime_scores_tractfreqs.groupTuple(by: 0, size: num_autosomes)
-   each tuple val(qpop), path("*") in Sprime_pop_samples.join(Sprime_perchrom_vcfs_tractfreqs.groupTuple(by: 0, size: num_autosomes), by: 0, failOnDuplicate: true, failOnMismatch: true)
+   tuple val(pop), path("*"), val(qpop), path("*"), path("*"), path("*") from Sprime_scores_tractfreqs
+      .groupTuple(by: 0, size: num_autosomes)
+      .combine(Sprime_pop_samples
+         .groupTuple(by: 0, size: num_autosomes)
+         .map({ [it[0], it[1].take(1)] })
+         .join(Sprime_perchrom_vcfs_tractfreqs
+      .groupTuple(by: 0, size: num_autosomes), by: 0, failOnDuplicate: true, failOnMismatch: true))
+//   each tuple val(qpop), path("*") in Sprime_pop_samples.join(Sprime_perchrom_vcfs_tractfreqs.groupTuple(by: 0, size: num_autosomes), by: 0, failOnDuplicate: true, failOnMismatch: true)
 
    output:
    tuple val(pop), val(qpop), path("${pop}_Sprime_${qpop}_tract_freqs.tsv.gz") into Sprime_tract_freqs
@@ -334,11 +377,11 @@ process sprime_genes {
    publishDir path: "${params.output_dir}/Sprime", mode: 'copy', pattern: '*.tcsv.gz'
 
    input:
-   tuple val(pop), path("${pop}_Sprime_${pop}_tract_freqs.tsv.gz") from Sprime_tract_freqs.filter({ it[0] == it[1] }).mutate({ [it[0], it[2]] })
+   tuple val(pop), path("${pop}_Sprime_${pop}_tract_freqs.tsv.gz") from Sprime_tract_freqs.filter({ it[0] == it[1] }).map({ [it[0], it[2]] })
    path annotation_gff
 
    output:
-   tuple val(pop), path("${pop}_Sprime_gene_lists.tcsv.gz") into Sprime_gene_lists
+   tuple val(pop), path("${pop}_Sprime_gene_lists.tcsv.gz"), path("${pop}_Sprime_gene_name_lists.tcsv.gz") into Sprime_gene_lists
 
    shell:
    '''
@@ -351,6 +394,9 @@ process sprime_genes {
       -b <(gzip -dc !{annotation_gff} | \
          awk 'BEGIN{FS="\t";OFS=FS;}/^#/{print;}!/^#/{sub("chr", "", $1); print $0;}') \
       -wao | \
+      tee >(!{projectDir}/HumanPopGenScripts/Sprime/SprimeTractGeneList.awk -v "trim=1" -v "tag=gene_name" | \
+         sort -k1,1V -k2,2n -k3,3n | \
+         gzip -9 > !{pop}_Sprime_gene_name_lists.tcsv.gz) | \
       !{projectDir}/HumanPopGenScripts/Sprime/SprimeTractGeneList.awk -v "trim=1" -v "tag=ID" | \
       sort -k1,1V -k2,2n -k3,3n | \
       gzip -9 > !{pop}_Sprime_gene_lists.tcsv.gz
