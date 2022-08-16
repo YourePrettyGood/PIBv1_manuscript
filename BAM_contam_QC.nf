@@ -30,7 +30,9 @@ params.vbid2_panel = "${params.vbid2_prefix}/${params.panel_id}.vcf.gz.dat"
 Channel
    .fromFilePairs(params.bam_glob, checkIfExists: true) { file -> (file.getSimpleName() =~ params.id_regex)[0][1] }
    .ifEmpty { error "Unable to find BAMs matching glob: ${params.bam_glob}" }
-   .tap { bams_VBID, bams_mutserve, bams_somalier }
+   .tap { bams_VBID }
+   .tap { bams_haplocheck }
+   .tap { bams_somalier }
    .subscribe { println "Added ${it[0]} to bams_* channels" }
 
 //Set up the file channels for the ref and its various index components:
@@ -136,10 +138,10 @@ process haplocheck {
    module load !{params.mod_mutserve}
    module load !{params.mod_haplocheck}
    mutserve call --reference !{rcrs} --threads !{task.cpus} --output !{id}_mutserve.vcf.gz !{bambai[0]} 2> !{id}_mutserve.stderr > !{id}_mutserve.stdout
-   haplocheck --threads !{task.cpus} --out !{id} !{id}_mutserve.vcf.gz 2> !{id}_haplocheck.stderr > !{id}_haplocheck.stdout
-   cp !{id}/report.html !{id}_haplocheck_report.html
-   cp !{id}/contamination.txt !{id}_haplocheck_contamination.txt
-   cp !{id}/contamination.raw.txt !{id}_haplocheck_contamination.raw.txt
+   haplocheck --raw --out !{id}.txt !{id}_mutserve.vcf.gz 2> !{id}_haplocheck.stderr > !{id}_haplocheck.stdout
+   cp !{id}.html !{id}_haplocheck_report.html
+   cp !{id}.txt !{id}_haplocheck_contamination.txt
+   cp !{id}.raw.txt !{id}_haplocheck_contamination.raw.txt
    '''
 }
 
@@ -183,7 +185,7 @@ process somalier_relate {
    publishDir path: "${params.output_dir}/somalier", mode: 'copy', pattern: '*.{html,tsv,txt}'
 
    input:
-   path("*") from somalier_extracted.collect()
+   path("somalier_paths.tsv") from somalier_extracted.collectFile() { [ "somalier_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
 
    output:
    tuple path("somalier_relate.stderr"), path("somalier_relate.stdout") into somalier_relate_logs
@@ -192,6 +194,10 @@ process somalier_relate {
    shell:
    '''
    module load !{params.mod_somalier}
+   while read -a a;
+      do
+      ln -s ${a[2]} ${a[1]};
+   done < somalier_paths.tsv
    SOMALIER_REPORT_ALL_PAIRS=1 somalier relate --infer -o !{params.run_name}_somalier "./*.somalier" 2> somalier_relate.stderr > somalier_relate.stdout
    !{projectDir}/HumanPopGenScripts/Relatedness/extract_families_somalier.awk !{params.run_name}_somalier.samples.tsv !{params.run_name}_somalier.pairs.tsv > !{params.run_name}_somalier_inferred_relationships.txt
    '''
