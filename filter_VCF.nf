@@ -273,7 +273,7 @@ process maxdp_bybin {
    path ref_fai
 
    output:
-   tuple path("bcftools_setGT_maxDP_chr${chrom}.stderr"), path("bcftools_setGT_maxDP_chr${chrom}.stdout") into maxdp_bybin_logs
+   tuple path("bcftools_annotate_resetHWEmissing_chr${chrom}.stderr"), path("bcftools_setGT_maxDP_chr${chrom}.stderr"), path("bcftools_filltags_resetHWEmissing_chr${chrom}.stderr"), path("bcftools_filter_resetExcHet_chr${chrom}.stderr"), path("bcftools_filter_resetHWE_chr${chrom}.stderr"), path("bcftools_filter_resetZeromissing_chr${chrom}.stderr"), path("bcftools_filter_resetMissing_chr${chrom}.stderr"), path("bcftools_filter_resetMissing_chr${chrom}.stdout") into maxdp_bybin_logs
    tuple path(maxdps), path("maxdp_bins.tsv"), path("maxDP_clustering.pdf") into maxdp_bybin_clustering
    tuple val(chrom), path("${params.run_name}_chr${chrom}_allmasks.vcf.gz"), path("${params.run_name}_chr${chrom}_allmasks.vcf.gz.tbi") into maxdp_bybin_vcfs
 
@@ -285,7 +285,13 @@ process maxdp_bybin {
    module load !{params.mod_bcftools}
    module load !{params.mod_htslib}
    maxdp_thresh_str=$(awk 'BEGIN{FS="\t";}NR==1{printf "FMT/DP[@%s]>%s", $1, $2;}NR>1{printf "|FMT/DP[@%s]>%s", $1, $2;}' maxdp_bins.tsv)
-   bcftools +setGT -Oz -o !{params.run_name}_chr!{chrom}_allmasks.vcf.gz !{vcf} -- -t q -n . -i "${maxdp_thresh_str}" 2> bcftools_setGT_maxDP_chr!{chrom}.stderr > bcftools_setGT_maxDP_chr!{chrom}.stdout
+   bcftools annotate -x FILTER/ExcHet!{params.exchet_thresh},FILTER/HWE!{params.hwe_thresh},FILTER/Missingness0,FILTER/Missingness0.05 !{vcf} 2> bcftools_annotate_resetHWEmissing_chr!{chrom}.stderr | \
+      bcftools +setGT - -- -t q -n . -i "${maxdp_thresh_str}" 2> bcftools_setGT_maxDP_chr!{chrom}.stderr | \
+      bcftools +fill-tags - -- -t ExcHet,HWE 2> bcftools_filltags_resetHWEmissing_chr!{chrom}.stderr | \
+      bcftools filter --threads !{task.cpus} -m+ -sExcHet!{params.exchet_thresh} -i 'MIN(INFO/ExcHet)>!{params.exchet_thresh}' - 2> bcftools_filter_resetExcHet_chr!{chrom}.stderr | \
+      bcftools filter --threads !{task.cpus} -m+ -sHWE!{params.exchet_thresh} -i 'MIN(INFO/HWE)>!{params.hwe_thresh}' - 2> bcftools_filter_resetHWE_chr!{chrom}.stderr | \
+      bcftools filter --threads !{task.cpus} -m+ -sMissingness0 -i 'F_MISSING<=0.0' - 2> bcftools_filter_resetZeromissing_chr!{chrom}.stderr | \
+      bcftools filter --threads !{task.cpus} -Oz -o !{params.run_name}_chr!{chrom}_allmasks.vcf.gz -m+ -sMissingness!{params.missing_thresh} -i 'F_MISSING<=!{params.missing_thresh}' - 2> bcftools_filter_resetMissing_chr!{chrom}.stderr > bcftools_filter_resetMissing_chr!{chrom}.stdout
    tabix -f !{params.run_name}_chr!{chrom}_allmasks.vcf.gz
    '''
 }
