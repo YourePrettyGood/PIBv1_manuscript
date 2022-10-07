@@ -1,0 +1,232 @@
+#!/usr/bin/env Rscript
+
+options <- commandArgs(trailingOnly=TRUE)
+
+check_package <- function(pkg_name) {
+   if (!require(pkg_name, character.only=TRUE)) {
+      install.packages(pkg_name, repos="https://cran.us.r-project.org")
+   }
+   library(pkg_name, character.only=TRUE)
+}
+
+check_package("SNPRelate")
+check_package("tidyverse")
+check_package("ggrepel")
+
+#Read in arguments:
+plink_prefix <- options[1]
+output_prefix <- options[2]
+#Optional arguments for PCA plotting details:
+if (length(options) < 3 || is.na(options[3]) || !file.exists(options[3])) {
+   stop("Unable to proceed with PCA, the sample group map doesn't exist or wasn't provided")
+} else {
+   sample_group_map <- options[3]
+}
+if (length(options) < 4 || is.na(options[4]) || options[4] == '') {
+   sample_group_map_layout <- 'ccccclcccnncccclc'
+} else {
+   sample_group_map_layout <- options[4]
+}
+if (length(options) < 5 || is.na(options[5]) || options[5] == '') {
+   group_colname <- 'Region'
+} else {
+   group_colname <- options[5]
+}
+if (length(options) < 6 || is.na(options[6]) || options[6] == '') {
+   group_levels <- c("America", "Europe", "Africa", "Middle_East",
+                     "Central_South_Asia", "East_Asia", "Island_Southeast_Asia", "Oceania")
+} else {
+   group_levels <- strsplit(options[6], ",", fixed=TRUE)
+}
+if (length(options) < 7 || is.na(options[7]) || options[7] == '') {
+   group_labels <- c("America", "Europe", "Africa", "Middle East",
+                     "Central/South Asia", "East Asia", "Island Southeast Asia", "Oceania")
+} else {
+   group_labels <- strsplit(options[7], ",", fixed=TRUE)
+}
+
+if (!file.exists(paste0(output_prefix, ".gds"))) {
+   #Convert PLINK to GDS:
+   snpgdsBED2GDS(paste0(plink_prefix, ".bed"),
+                 paste0(plink_prefix, ".fam"),
+                 paste0(plink_prefix, ".bim"),
+                 paste0(output_prefix, ".gds"))
+} else {
+   print("Skipping PLINK to GDS conversion, since the GDS file already exists.")
+}
+
+if (!file.exists(paste0(output_prefix, "_PCA.Rdata"))) {
+   #Open the file handle for the GDS:
+   gds_fh <- snpgdsOpen(paste0(output_prefix, ".gds"))
+
+   #Run a basic PCA:
+   #eigen.cnt=0 returns all eigenvectors
+   pca <- snpgdsPCA(gds_fh,
+                    algorithm="exact",
+                    eigen.cnt=0,
+                    num.thread=1)
+
+   #Postprocess the results into something easier to plot:
+   eigvec <- pca$eigenvect
+   rownames(eigvec) <- pca$sample.id
+   colnames(eigvec) <- paste0("PC", seq(1, ncol(pca$eigenvect)))
+   #And write them to files for later re-use:
+   write.table(pca$eigenval,
+               paste0(output_prefix, "_PCA.eigenval"),
+               row.names=FALSE,
+               col.names=FALSE,
+               sep="\t",
+               eol="\n",
+               quote=FALSE)
+   write.table(eigvec,
+               paste0(output_prefix, "_PCA.eigenvec"),
+               row.names=TRUE,
+               col.names=TRUE,
+               sep="\t",
+               eol="\n",
+               quote=FALSE)
+   save(pca,
+        file=paste0(output_prefix, "_PCA.Rdata"),
+        compress=TRUE,
+        compression_level=9)
+
+   #Clean up and move on to the next SNPRelate analysis:
+   rm(eigvec)
+
+   rm(pca)
+   #Close out the GDS file handle:
+   snpgdsClose(gds_fh)
+} else {
+   print("Skipping PCA since the .Rdata file already exists")
+}
+
+#Reload the PCA results in more plottable format:
+pca_eigval <- read.table(paste0(output_prefix, "_PCA.eigenval"),
+                         header=FALSE,
+                         colClasses=c("numeric"),
+                         col.names=c("Eigenvalue"),
+                         row.names=NULL)
+pca_eigvec <- read.table(paste0(output_prefix, "_PCA.eigenvec"),
+                         colClasses=c("character", rep("numeric", nrow(pca_eigval))),
+                         col.names=c("ID", paste0("PC", seq(1, nrow(pca_eigval)))),
+                         skip=1)
+pca_eigval <- pca_eigval %>%
+   mutate(PC=as.character(row_number()))
+pca_eigvec <- pca_eigvec %>%
+   pivot_longer(cols=-ID,
+                names_prefix="PC",
+                names_to="PC",
+                values_to="Loading")
+
+#Generate a data.frame of the percent of variance explained by each PC:
+pve_df <- pca_eigval %>%
+   mutate(PVE=abs(Eigenvalue)*100/sum(abs(Eigenvalue)))
+
+#Add sample grouping labels:
+#We assume that the sample group map has a sample ID column named "SampleID".
+sample_groups <- read_tsv(sample_group_map,
+                          col_types=sample_group_map_layout,
+                          na=c("NA", "")) %>%
+   mutate(Group=factor(.data[[group_colname]],
+                       levels=group_levels,
+                       labels=group_labels))
+pca_df <- pca_eigvec %>%
+   inner_join(sample_groups, by=c("ID"="SampleID"))
+
+#Define the pca screeplot and biplot functions:
+pca_screeplot <- function(pve) {
+   pve %>%
+      mutate(PC=as.numeric(PC)) %>%
+      ggplot(aes(x=PC, y=PVE)) +
+         geom_point() +
+         theme_bw() +
+         labs(y="Percent of Variance Explained") +
+         ylim(0, NA)
+}
+
+pca_biplot <- function(loadings, pve, PCs, colour, label=NULL, palette,
+                       title, pointsize=1, labelsize=1, labellinewidth=0.5) {
+   pve_precision <- 3
+   pc_one <- paste0("PC", PCs[1])
+   pc_one_pve <- signif(pve[pve$PC == PCs[1], "PVE"], pve_precision)
+   pc_two <- paste0("PC", PCs[2])
+   pc_two_pve <- signif(pve[pve$PC == PCs[2], "PVE"], pve_precision)
+   n_groups <- loadings %>% count(.data[[colour]]) %>% nrow()
+   loadings %>%
+      filter(PC %in% PCs) %>%
+      pivot_wider(names_from="PC",
+                  names_prefix="PC",
+                  values_from="Loading") %>%
+      {
+         if (!is.null(label)) {
+            ggplot(data=., aes_string(x=pc_one, y=pc_two, colour=colour, label=label))
+         } else {
+            ggplot(data=., aes_string(x=pc_one, y=pc_two, colour=colour))
+         }
+      } +
+         geom_point(size=pointsize, alpha=0.7) +
+         {
+            if (!is.null(label)) {
+               geom_text_repel(size=labelsize, segment.size=labellinewidth)
+            }
+         } +
+         theme_bw() +
+         {
+            if (length(palette) > 1) {
+               scale_colour_manual(values=palette)
+            } else if (length(palette) == 1) {
+               scale_colour_brewer(palette=palette)
+            } else {
+               if (n_groups <= 8) {
+                  scale_colour_brewer(palette="Set2")
+               } else if (n_groups <= 12) {
+                  scale_colour_brewer(palette="Paired")
+               } else if (n_groups <= 13) {
+                  scale_colour_manual(values=c("black", "grey70", "deeppink1", "brown",
+                                               "darkred", "orange", "tomato", "blue",
+                                               "purple", "deepskyblue", "cornflowerblue", "darkblue",
+                                               "cyan"))
+               } else {
+                  scale_colour_discrete()
+               }
+            }
+         } +
+         labs(x=paste0(pc_one, " (", pc_one_pve, "%)"),
+              y=paste0(pc_two, " (", pc_two_pve, "%)"),
+              title=title,
+              subtitle=paste0(pc_one, " vs. ", pc_two))
+}
+
+#Generate the scree plot:
+screeplot <- pca_screeplot(pve_df)
+ggsave(paste0(output_prefix, "_PCA_screeplot.pdf"),
+       plot=screeplot,
+       width=16.0,
+       height=12.0,
+       units="cm",
+       dpi=500)
+
+#Generate the PCA biplots:
+biplot_1v2 <- pca_biplot(loadings=pca_df, pve=pve_df, PCs=c(1, 2), colour="Group", label=NULL, palette=NULL, title="")
+ggsave(paste0(output_prefix, "_PCA_PC1vs2_by", group_colname, ".pdf"),
+       plot=biplot_1v2,
+       width=16.0,
+       height=12.0,
+       units="cm",
+       dpi=500)
+
+biplot_3v4 <- pca_biplot(loadings=pca_df, pve=pve_df, PCs=c(3, 4), colour="Group", label=NULL, palette=NULL, title="")
+ggsave(paste0(output_prefix, "_PCA_PC3vs4_by", group_colname, ".pdf"),
+       plot=biplot_3v4,
+       width=16.0,
+       height=12.0,
+       units="cm",
+       dpi=500)
+
+biplot_5v6 <- pca_biplot(loadings=pca_df, pve=pve_df, PCs=c(5, 6), colour="Group", label=NULL, palette=NULL, title="")
+ggsave(paste0(output_prefix, "_PCA_PC5vs6_by", group_colname, ".pdf"),
+       plot=biplot_5v6,
+       width=16.0,
+       height=12.0,
+       units="cm",
+       dpi=500)
