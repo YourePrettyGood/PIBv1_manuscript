@@ -20,6 +20,11 @@ params.recmap_regex = ~/chr([0-9XY_par]+)/
 //Archaic VCFs:
 params.arcvcf_glob = "${projectDir}/archaic_VCFs/*.vcf.gz"
 
+//Include/filter expression to apply to input VCFs:
+params.input_filter_str = ""
+//Sample ID file for exclusion:
+params.samples_to_exclude = "/dev/null"
+
 //Reference-related parameters for the pipeline:
 params.ref_prefix = "/gpfs/gibbs/pi/tucci/pfr8/refs"
 params.ref = "${params.ref_prefix}/1kGP/hs37d5/hs37d5.fa"
@@ -84,6 +89,8 @@ num_autosomes = params.autosomes.tokenize(',').size()
 metadata = file(params.metadata_file, checkIfExists: true)
 archaic_metadata = file(params.arc_metadata_file, checkIfExists: true)
 annotation_gff = file(params.annotation_gff, checkIfExists: true)
+//And a file channel for the sample IDs to exclude:
+excluded_samples = file(params.samples_to_exclude, checkIfExists: true)
 
 //Default parameter values:
 //Sample ID column name in metadata file:
@@ -92,7 +99,7 @@ params.id_colname = "Sample"
 params.sprime_outgroup_colname = "Region"
 params.sprime_outgroup = "Africa"
 //Target group column name:
-params.sprime_target_colname = "Population"
+params.sprime_target_colname = "AnalysisGroup"
 
 //Defaults for cpus, memory, and time for each process:
 //VCF subsetting for Sprime
@@ -159,6 +166,7 @@ process sprime_vcf_subset {
    tuple val(pop), val(chrom), path(input_vcf), path(input_tbi) from sprime_pops.combine(perchrom_vcfs_subset)
 //   each pop from sprime_pops
    path metadata
+   path excluded_samples
 
    output:
    tuple path("bcftools_view_selectpops_Sprime_${pop}_chr${chrom}.stderr"), path("bcftools_view_nomissinggenos_Sprime_${pop}_chr${chrom}.stderr"), path("bcftools_view_nomissinggenos_Sprime_${pop}_chr${chrom}.stdout") into sprime_vcf_subset_logs
@@ -170,15 +178,17 @@ process sprime_vcf_subset {
    '''
    module load !{params.mod_bcftools}
    module load !{params.mod_htslib}
-   !{projectDir}/HumanPopGenScripts/selectSubsamples.awk -v "idcol=!{params.id_colname}" -v "selectcol=!{params.sprime_outgroup_colname}" -v "select=!{params.sprime_outgroup}" !{metadata} > !{pop}_outgroup_samples.tsv
-   !{projectDir}/HumanPopGenScripts/selectSubsamples.awk -v "idcol=!{params.id_colname}" -v "selectcol=!{params.sprime_target_colname}" -v "select=!{pop}" !{metadata} > !{pop}_samples.tsv
+   !{projectDir}/HumanPopGenScripts/selectSubsamples.awk -v "idcol=!{params.id_colname}" -v "selectcol=!{params.sprime_outgroup_colname}" -v "select=!{params.sprime_outgroup}" !{metadata} | \
+      !{projectDir}/HumanPopGenScripts/excludeSamples.awk !{excluded_samples} - > !{pop}_outgroup_samples.tsv
+   !{projectDir}/HumanPopGenScripts/selectSubsamples.awk -v "idcol=!{params.id_colname}" -v "selectcol=!{params.sprime_target_colname}" -v "select=!{pop}" !{metadata} | \
+      !{projectDir}/HumanPopGenScripts/excludeSamples.awk !{excluded_samples} - > !{pop}_samples.tsv
    cat !{pop}_samples.tsv !{pop}_outgroup_samples.tsv > !{pop}_plusOutgroup_samples.tsv
    #We have to separate the sample selection from the genotype missingness filter
    # because of a bug in bcftools view when -S and -g are used in tandem:
    #Way too many sites get filtered if you use them together, possibly more than
    # if -g was used alone.
    bcftools view -S !{pop}_plusOutgroup_samples.tsv -Ou !{input_vcf} 2> bcftools_view_selectpops_Sprime_!{pop}_chr!{chrom}.stderr | \
-   bcftools view -g ^miss -Oz -o !{pop}_chr!{chrom}_nomissinggenos.vcf.gz 2> bcftools_view_nomissinggenos_Sprime_!{pop}_chr!{chrom}.stderr > bcftools_view_nomissinggenos_Sprime_!{pop}_chr!{chrom}.stdout
+   bcftools view -i '!{params.input_filter_str}' -g ^miss -Oz -o !{pop}_chr!{chrom}_nomissinggenos.vcf.gz 2> bcftools_view_nomissinggenos_Sprime_!{pop}_chr!{chrom}.stderr > bcftools_view_nomissinggenos_Sprime_!{pop}_chr!{chrom}.stdout
    tabix -f !{pop}_chr!{chrom}_nomissinggenos.vcf.gz
    '''
 }

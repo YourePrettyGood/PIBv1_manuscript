@@ -36,13 +36,37 @@ if (length(options) < 6 || is.na(options[6]) || options[6] == '') {
    group_levels <- c("America", "Europe", "Africa", "Middle_East",
                      "Central_South_Asia", "East_Asia", "Island_Southeast_Asia", "Oceania")
 } else {
-   group_levels <- strsplit(options[6], ",", fixed=TRUE)
+   group_levels <- unlist(strsplit(options[6], ",", fixed=TRUE))
 }
 if (length(options) < 7 || is.na(options[7]) || options[7] == '') {
    group_labels <- c("America", "Europe", "Africa", "Middle East",
                      "Central/South Asia", "East Asia", "Island Southeast Asia", "Oceania")
 } else {
-   group_labels <- strsplit(options[7], ",", fixed=TRUE)
+   group_labels <- unlist(strsplit(options[7], ",", fixed=TRUE))
+}
+if (length(options) < 9 || is.na(options[8]) || is.na(options[9]) || options[8] == '' || options[9] == '') {
+   make_subset <- FALSE
+} else {
+   make_subset <- TRUE
+   subset_colname <- options[8]
+   subset_groupnames <- unlist(strsplit(options[9], ",", fixed=TRUE))
+   print(paste("Keeping ", subset_colname, subset_groupnames, sep="", collapse="\n"))
+}
+
+#Load the sample group map:
+sample_groups <- read_tsv(sample_group_map,
+                          col_types=sample_group_map_layout,
+                          na=c("NA", "")) %>%
+   mutate(Group=factor(.data[[group_colname]],
+                       levels=group_levels,
+                       labels=group_labels))
+
+if (make_subset) {
+   keep_ids <- (sample_groups %>%
+      filter(.data[[subset_colname]] %in% subset_groupnames))$SampleID
+   print(paste0("Subsetting ", length(keep_ids), " samples from ", length(subset_groupnames), " groups defined by column ", subset_colname))
+} else {
+   keep_ids <- sample_groups$SampleID
 }
 
 if (!file.exists(paste0(output_prefix, ".gds"))) {
@@ -64,7 +88,8 @@ if (!file.exists(paste0(output_prefix, "_PCA.Rdata"))) {
    pca <- snpgdsPCA(gds_fh,
                     algorithm="exact",
                     eigen.cnt=0,
-                    num.thread=1)
+                    num.thread=1,
+                    sample.id=keep_ids)
 
    #Postprocess the results into something easier to plot:
    eigvec <- pca$eigenvect
@@ -124,12 +149,6 @@ pve_df <- pca_eigval %>%
 
 #Add sample grouping labels:
 #We assume that the sample group map has a sample ID column named "SampleID".
-sample_groups <- read_tsv(sample_group_map,
-                          col_types=sample_group_map_layout,
-                          na=c("NA", "")) %>%
-   mutate(Group=factor(.data[[group_colname]],
-                       levels=group_levels,
-                       labels=group_labels))
 pca_df <- pca_eigvec %>%
    inner_join(sample_groups, by=c("ID"="SampleID"))
 
