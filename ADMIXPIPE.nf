@@ -27,6 +27,8 @@ plink_fam = file(params.plink_prefix+".fam", checkIfExists: true)
 
 //Set up a file channel for the population map:
 pop_map = file(params.pop_map, checkIfExists: true)
+//Quick hack to have population list for CLUMPAK:
+clumpak_pop_map = file(params.clumpak_pop_map, checkIfExists: true)
 
 //Set up a file channel for the CLUMPAK install zip:
 CLUMPAK = file(params.clumpak_zip, checkIfExists: true)
@@ -140,7 +142,7 @@ process clumpak {
 
    input:
    path CLUMPAK
-   path pop_map
+   path clumpak_pop_map
    path Qzip from Q_zip
 
    output:
@@ -156,7 +158,7 @@ process clumpak {
    chmod u+x !{params.clumpak_path}/mcl/bin/*
    #Set up the input directory and files:
    mkdir input
-   ln -s ../!{pop_map} input/
+   ln -s ../!{clumpak_pop_map} input/
    ln -s ../!{Qzip} input/
    #Set up the output directory:
    mkdir output
@@ -165,7 +167,7 @@ process clumpak {
    #Set the CWD to the staged CLUMPAK install:
    pushd !{params.clumpak_path}/
    #Run CLUMPAK with absolute paths:
-   perl CLUMPAK.pl --id !{params.run_name} --dir ${base_dir}/output --inputtype admixture --file ${base_dir}/input/!{Qzip} --indtopop ${base_dir}/input/!{pop_map} --mclthreshold !{params.mclthreshold} 2> CLUMPAK_!{params.run_name}.stderr > CLUMPAK_!{params.run_name}.stdout
+   perl CLUMPAK.pl --id !{params.run_name} --dir ${base_dir}/output --inputtype admixture --file ${base_dir}/input/!{Qzip} --indtopop ${base_dir}/input/!{clumpak_pop_map} --mclthreshold !{params.mclthreshold} 2> CLUMPAK_!{params.run_name}.stderr > CLUMPAK_!{params.run_name}.stdout
    popd
    #Since there are a ton of different outputs, let's just throw them into a tarball for export:
    tar -czf CLUMPAK_!{params.run_name}_output.tar.gz output/
