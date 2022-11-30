@@ -61,9 +61,10 @@ Channel
 Channel
    .fromPath(params.target_pops_file, checkIfExists: true)
    .ifEmpty { error "Unable to find target populations file for Sprime: ${params.target_pop_file}" }
-   .splitCsv()
+   .splitCsv(sep: "\t")
    .map { it[0] }
    .tap { sprime_pops }
+   .tap { sprime_target_pops }
    .subscribe { println "Added ${it} to sprime_pops channel" }
 
 //Set up the channels of archaic VCFs and their indices:
@@ -130,6 +131,10 @@ params.sprimetf_timeout = '24h'
 params.sprimegenes_cpus = 1
 params.sprimegenes_mem = 5
 params.sprimegenes_timeout = '24h'
+//Combine outputs across targets and chromosomes
+params.catouts_cpus = 1
+params.catouts_mem = 1
+params.catouts_timeout = '2h'
 
 //Preprocess the per-chromosome VCF channel to include the indices:
 perchrom_vcfs
@@ -257,7 +262,7 @@ process sprime_matchrate {
    tag "${pop}"
 
    cpus params.sprimematch_cpus
-   memory { params.sprimematch_mem.plus(1).plus(task.attempt.minus(1).multiply(16))+' GB' }
+   memory { params.sprimematch_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
    time { task.attempt >= 2 ? '24h' : params.sprimematch_timeout }
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
@@ -301,7 +306,7 @@ process sprime_project {
    tag "${pop}"
 
    cpus params.sprimeproject_cpus
-   memory { params.sprimeproject_mem.plus(1).plus(task.attempt.minus(1).multiply(16))+' GB' }
+   memory { params.sprimeproject_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
    time { task.attempt >= 2 ? '24h' : params.sprimeproject_timeout }
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
@@ -339,7 +344,7 @@ process sprime_tractfreqs {
    tag "${pop} ${qpop}"
 
    cpus params.sprimetf_cpus
-   memory { params.sprimetf_mem.plus(1).plus(task.attempt.minus(1).multiply(16))+' GB' }
+   memory { params.sprimetf_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
    time { task.attempt >= 2 ? '24h' : params.sprimetf_timeout }
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
@@ -358,7 +363,7 @@ process sprime_tractfreqs {
 //   each tuple val(qpop), path("*") in Sprime_pop_samples.join(Sprime_perchrom_vcfs_tractfreqs.groupTuple(by: 0, size: num_autosomes), by: 0, failOnDuplicate: true, failOnMismatch: true)
 
    output:
-   tuple val(pop), val(qpop), path("${pop}_Sprime_${qpop}_tract_freqs.tsv.gz") into Sprime_tract_freqs
+   tuple val(pop), val(qpop), path("${pop}_Sprime_${qpop}_tract_freqs.tsv.gz") into Sprime_tract_freqs,Sprime_tract_freqs_tocat
 
    shell:
    '''
@@ -378,7 +383,7 @@ process sprime_genes {
    tag "${pop}"
 
    cpus params.sprimegenes_cpus
-   memory { params.sprimegenes_mem.plus(1).plus(task.attempt.minus(1).multiply(16))+' GB' }
+   memory { params.sprimegenes_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
    time { task.attempt >= 2 ? '24h' : params.sprimegenes_timeout }
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
@@ -410,5 +415,87 @@ process sprime_genes {
       !{projectDir}/HumanPopGenScripts/Sprime/SprimeTractGeneList.awk -v "trim=1" -v "tag=ID" | \
       sort -k1,1V -k2,2n -k3,3n | \
       gzip -9 > !{pop}_Sprime_gene_lists.tcsv.gz
+   '''
+}
+
+process cat_outs {
+   cpus params.catouts_cpus
+   memory { params.catouts_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
+   time { task.attempt >= 2 ? '24h' : params.catouts_timeout }
+   errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
+   maxRetries 1
+
+   publishDir path: "${params.output_dir}/Sprime", mode: 'copy', pattern: '*.t{sv,csv}.gz'
+
+   input:
+   path matchrates from Sprime_matchrates.collectFile() { [ "matchrate_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
+   path projections from Sprime_project_BEDs.collectFile() { [ "projection_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
+   path tractfreqs from Sprime_tract_freqs_tocat.map({ it[2] }).collectFile() { [ "tractfreq_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
+   path genelists from Sprime_gene_lists.map({ it[1] }).collectFile() { [ "genelist_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
+   path targetpops from sprime_target_pops.collectFile(name: 'Sprime_target_populations.txt', newLine: true, sort: true)
+   path metadata
+   path excluded_samples
+
+   output:
+   tuple path("${params.run_name}_perPop_Sprime_autosomal_match_rates.tsv.gz"), path("${params.run_name}_Sprime_perChrom_perIndiv_perPop_tract_lengths.tsv.gz"), path("${params.run_name}_Sprime_allPopPairs_tract_freqs.tsv.gz"), path("${params.run_name}_Sprime_gene_name_lists.tcsv.gz") into catouts_outputs
+
+   shell:
+   '''
+   #Symlink the many input files to avoid SLURM SBATCH script size limits:
+   cat matchrate_paths.tsv projection_paths.tsv tractfreq_paths.tsv genelist_paths.tsv | \
+      while IFS=$'\t' read -a a;
+         do
+         ln -s ${a[2]} ${a[1]};
+      done
+   #Concatenate the match rate files across populations:
+   header=1
+   while IFS=$'\t' read p;
+      do
+      gzip -dc ${p}_autosomes_Sprime_match_rates.tsv.gz | \
+         awk -v "header=${header}" 'BEGIN{FS="\t";OFS=FS;}NR==1&&header{print;}NR>1{print;}'
+      header=0;
+   done < !{targetpops} | \
+      gzip -9 > !{params.run_name}_perPop_Sprime_autosomal_match_rates.tsv.gz
+   unset header
+   #Calculate total per-individual tract length and
+   # concatenate files across populations:
+   header=1
+   while IFS=$'\t' read p;
+      do
+      !{projectDir}/HumanPopGenScripts/selectSubsamples.awk -v "idcol=!{params.id_colname}" -v "selectcol=!{params.sprime_target_colname}" -v "select=${p}" !{metadata} | \
+         !{projectDir}/HumanPopGenScripts/excludeSamples.awk !{excluded_samples} - | \
+         !{projectDir}/HumanPopGenScripts/Sprime/SprimeTractBEDtoLengths.awk -v "header=${header}" -v "pop=${p}" - ${p}_Sprime_tracts_perSample.bed
+      header="";
+   done < !{targetpops} | \
+      gzip -9 > !{params.run_name}_Sprime_perChrom_perIndiv_perPop_tract_lengths.tsv.gz
+   unset header
+   #Concatenate tract frequency files and add a header:
+   header=1
+   while IFS=$'\t' read p;
+      do
+      if [[ "${header}" == "1" ]]; then
+         printf "Chromosome\tStart\tEnd\tTractID\tQueryPop\tMedianAF\tMinAF\tMaxAF\n"
+         header=""
+      fi
+      while IFS=$'\t' read q;
+         do
+         gzip -dc ${p}_Sprime_${q}_tract_freqs.tsv.gz | \
+            sort -k1,1V -k2,2n -k3,3n;
+      done < !{targetpops};
+   done < !{targetpops} | \
+      gzip -9 > !{params.run_name}_Sprime_allPopPairs_tract_freqs.tsv.gz
+   #Concatenate the gene name lists across populations:
+   header=1
+   while IFS=$'\t' read p;
+      do
+      if [[ "${header}" == "1" ]]; then
+         printf "Chromosome\tStart\tEnd\tTractID\tOverlappingGenes\n"
+         header=""
+      fi
+      gzip -dc ${p}_Sprime_gene_name_lists.tcsv.gz
+      header="";
+   done < !{targetpops} | \
+      gzip -9 > !{params.run_name}_Sprime_gene_name_lists.tcsv.gz
+   unset header
    '''
 }

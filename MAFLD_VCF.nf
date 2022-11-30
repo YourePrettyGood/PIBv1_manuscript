@@ -216,14 +216,26 @@ process ldprune {
 
    output:
    tuple path("plink_LDprune_${params.MAF_name}_bSNPs_${params.LD_name}.stderr"), path("plink_LDprune_${params.MAF_name}_bSNPs_${params.LD_name}.stdout"), path("plink_extractLDpruned_${params.MAF_name}_bSNPs_${params.LD_name}.stderr"), path("plink_extractLDpruned_${params.MAF_name}_bSNPs_${params.LD_name}.stdout") into ldprune_logs
+   tuple path("plink_makebed_${params.MAF_name}_bSNPs_${params.LD_name}.stderr"), path("plink_makebed_${params.MAF_name}_bSNPs_${params.LD_name}.stdout") optional true into ldprune_pgentobed_logs
    tuple path("${params.run_name}_autosomes_${params.MAF_name}_bSNPs_${params.LD_name}.bed"), path("${params.run_name}_autosomes_${params.MAF_name}_bSNPs_${params.LD_name}.bim"), path("${params.run_name}_autosomes_${params.MAF_name}_bSNPs_${params.LD_name}.fam") into ldprune_plink_outputs
 
    shell:
    plink_mem = task.memory.minus(1.GB).toMega()
-   '''
-   module load !{params.mod_plink2}
-   pfileprefix=$(basename !{pgen} .pgen)
-   !{params.plink2_bin} --threads !{task.cpus} --memory !{plink_mem} --pfile ${pfileprefix} vzs !{params.ld_pruning_algo} !{params.ld_pruning_params} --out !{params.run_name}_autosomes_!{params.MAF_name}_bSNPs_!{params.LD_name} 2> plink_LDprune_!{params.MAF_name}_bSNPs_!{params.LD_name}.stderr > plink_LDprune_!{params.MAF_name}_bSNPs_!{params.LD_name}.stdout
-   !{params.plink2_bin} --threads !{task.cpus} --memory !{plink_mem} --pfile ${pfileprefix} vzs --extract !{params.run_name}_autosomes_!{params.MAF_name}_bSNPs_!{params.LD_name}.prune.in --make-bed --out !{params.run_name}_autosomes_!{params.MAF_name}_bSNPs_!{params.LD_name} 2> plink_extractLDpruned_!{params.MAF_name}_bSNPs_!{params.LD_name}.stderr > plink_extractLDpruned_!{params.MAF_name}_bSNPs_!{params.LD_name}.stdout
-   '''
+   if (params.ld_pruning_algo == "--indep-pairwise")
+      '''
+      module load !{params.mod_plink2}
+      pfileprefix=$(basename !{pgen} .pgen)
+      !{params.plink2_bin} --threads !{task.cpus} --memory !{plink_mem} --pfile ${pfileprefix} vzs !{params.ld_pruning_algo} !{params.ld_pruning_params} --out !{params.run_name}_autosomes_!{params.MAF_name}_bSNPs_!{params.LD_name} 2> plink_LDprune_!{params.MAF_name}_bSNPs_!{params.LD_name}.stderr > plink_LDprune_!{params.MAF_name}_bSNPs_!{params.LD_name}.stdout
+      !{params.plink2_bin} --threads !{task.cpus} --memory !{plink_mem} --pfile ${pfileprefix} vzs --extract !{params.run_name}_autosomes_!{params.MAF_name}_bSNPs_!{params.LD_name}.prune.in --make-bed --out !{params.run_name}_autosomes_!{params.MAF_name}_bSNPs_!{params.LD_name} 2> plink_extractLDpruned_!{params.MAF_name}_bSNPs_!{params.LD_name}.stderr > plink_extractLDpruned_!{params.MAF_name}_bSNPs_!{params.LD_name}.stdout
+      '''
+   else
+      '''
+      module load !{params.mod_plink2}
+      pfileprefix=$(basename !{pgen} .pgen)
+      !{params.plink2_bin} --threads !{task.cpus} --memory !{plink_mem} --pfile ${pfileprefix} vzs --out ${pfileprefix} --make-bed 2> plink_makebed_!{params.MAF_name}_bSNPs_!{params.LD_name}.stderr > plink_makebed_!{params.MAF_name}_bSNPs_!{params.LD_name}.stdout
+      module unload !{params.mod_plink2}
+      module load !{params.mod_plink19}
+      !{params.plink19_bin} --threads !{task.cpus} --memory !{plink_mem} --bfile ${pfileprefix} !{params.ld_pruning_algo} !{params.ld_pruning_params} --out !{params.run_name}_autosomes_!{params.MAF_name}_bSNPs_!{params.LD_name} 2> plink_LDprune_!{params.MAF_name}_bSNPs_!{params.LD_name}.stderr > plink_LDprune_!{params.MAF_name}_bSNPs_!{params.LD_name}.stdout
+      !{params.plink19_bin} --threads !{task.cpus} --memory !{plink_mem} --bfile ${pfileprefix} --extract !{params.run_name}_autosomes_!{params.MAF_name}_bSNPs_!{params.LD_name}.prune.in --make-bed --out !{params.run_name}_autosomes_!{params.MAF_name}_bSNPs_!{params.LD_name} 2> plink_extractLDpruned_!{params.MAF_name}_bSNPs_!{params.LD_name}.stderr > plink_extractLDpruned_!{params.MAF_name}_bSNPs_!{params.LD_name}.stdout
+      '''
 }

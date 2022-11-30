@@ -27,8 +27,6 @@ plink_fam = file(params.plink_prefix+".fam", checkIfExists: true)
 
 //Set up a file channel for the population map:
 pop_map = file(params.pop_map, checkIfExists: true)
-//Quick hack to have population list for CLUMPAK:
-clumpak_pop_map = file(params.clumpak_pop_map, checkIfExists: true)
 
 //Set up a file channel for the CLUMPAK install zip:
 CLUMPAK = file(params.clumpak_zip, checkIfExists: true)
@@ -79,28 +77,24 @@ process admixture {
    path plink_bed
    path plink_bim
    path plink_fam
-   path pop_map
    each K from Ks
    each replicate from replicates
 
    output:
-   tuple path("admixture_K${K}_r${replicate}.stderr"), path("admixture_K${K}_r${replicate}.stdout") into admixture_logs
+   tuple path("${params.run_prefix}_admixture_K${K}_r${replicate}.stderr"), path("${params.run_prefix}_admixture_K${K}_r${replicate}.stdout") into admixture_logs
    path("${plink_prefix}.${K}_${replicate}.P") into admixture_P
    path("${plink_prefix}.${K}_${replicate}.Q") into admixture_Q
-   path("admixture_K${K}_r${replicate}.stdout") into admixture_CV
+   path("${params.run_prefix}_admixture_K${K}_r${replicate}.stdout") into admixture_CV
 
    shell:
    prng_seed = seeds[replicate.minus(1)]
    plink_prefix = plink_bed.getBaseName()
    '''
    module load !{params.mod_admixture}
-   admixture -j!{task.cpus} --seed=!{prng_seed} --cv=!{params.cv_folds} !{plink_prefix}.bed !{K} 2> admixture_K!{K}_r!{replicate}.stderr > admixture_K!{K}_r!{replicate}.stdout
+   admixture -j!{task.cpus} --seed=!{prng_seed} --cv=!{params.cv_folds} !{plink_prefix}.bed !{K} 2> !{params.run_prefix}_admixture_K!{K}_r!{replicate}.stderr > !{params.run_prefix}_admixture_K!{K}_r!{replicate}.stdout
    mv !{plink_prefix}.!{K}.P !{plink_prefix}.!{K}_!{replicate}.P
    mv !{plink_prefix}.!{K}.Q !{plink_prefix}.!{K}_!{replicate}.Q
    '''
-/*   module load !{params.mod_miniconda}
-   conda activate gaia
-   ./admixturePipeline.py -m !{pop_map} -b !{plink_prefix} -k !{K} -K !{K} -n !{task.cpus} -R 1 2> ADMIXPIPE_K!{K}_r!{replicate}.stderr > ADMIXPIPE_K!{K}_r!{replicate}.stdout*/
 }
 
 process zip_Q {
@@ -110,23 +104,27 @@ process zip_Q {
    errorStrategy { task.exitStatus in ([1]..(134..140).collect()) ? 'retry' : 'terminate' }
    maxRetries 1
 
+   publishDir path: "${params.output_dir}/ADMIXTURE", mode: 'copy', pattern: '*.zip'
+
    input:
    path("admixture_q_paths.tsv") from admixture_Q.collectFile() { [ "admixture_q_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
+   path plink_fam
+   path pop_map
 
    output:
-   path("${params.run_name}.zip") into Q_zip
+   path("${params.run_prefix}.zip") into Q_zip
 
    shell:
    '''
    while read -a a;
       do
-      ln -s ${a[2]} ${a[1]};
+      !{projectDir}/HumanPopGenScripts/ADMIXTURE/rearrangeQ.awk !{plink_fam} !{pop_map} ${a[2]} > ${a[1]};
    done < admixture_q_paths.tsv
    for K in {!{params.minK}..!{params.maxK}};
       do
-      zip !{params.run_name}_K${K}.zip $(find . -name "*.Q" -print | awk -v "K=${K}" '{n=split($1, a, ".");m=split(a[n-1], b, "_");if (b[1] == K) {printf " %s", $1;};}')
+      zip !{params.run_prefix}_K${K}.zip $(find . -name "*.Q" -print | awk -v "K=${K}" '{n=split($1, a, ".");m=split(a[n-1], b, "_");if (b[1] == K) {printf " %s", $1;};}')
    done
-   zip !{params.run_name}.zip !{params.run_name}_K*.zip
+   zip !{params.run_prefix}.zip !{params.run_prefix}_K*.zip
    '''
 }
 
@@ -142,12 +140,12 @@ process clumpak {
 
    input:
    path CLUMPAK
-   path clumpak_pop_map
+   path pop_map
    path Qzip from Q_zip
 
    output:
-   tuple path("${params.clumpak_path}/CLUMPAK_${params.run_name}.stderr"), path("${params.clumpak_path}/CLUMPAK_${params.run_name}.stdout") into clumpak_logs
-   path("CLUMPAK_${params.run_name}_output.tar.gz") into clumpak_output
+   tuple path("${params.clumpak_path}/CLUMPAK_${params.run_prefix}.stderr"), path("${params.clumpak_path}/CLUMPAK_${params.run_prefix}.stdout") into clumpak_logs
+   path("CLUMPAK_${params.run_prefix}_output.tar.gz") into clumpak_output
 
    shell:
    '''
@@ -158,7 +156,7 @@ process clumpak {
    chmod u+x !{params.clumpak_path}/mcl/bin/*
    #Set up the input directory and files:
    mkdir input
-   ln -s ../!{clumpak_pop_map} input/
+   cut -f2 !{pop_map} > input/clumpak_pop_map.txt
    ln -s ../!{Qzip} input/
    #Set up the output directory:
    mkdir output
@@ -167,9 +165,9 @@ process clumpak {
    #Set the CWD to the staged CLUMPAK install:
    pushd !{params.clumpak_path}/
    #Run CLUMPAK with absolute paths:
-   perl CLUMPAK.pl --id !{params.run_name} --dir ${base_dir}/output --inputtype admixture --file ${base_dir}/input/!{Qzip} --indtopop ${base_dir}/input/!{clumpak_pop_map} --mclthreshold !{params.mclthreshold} 2> CLUMPAK_!{params.run_name}.stderr > CLUMPAK_!{params.run_name}.stdout
+   perl CLUMPAK.pl --id !{params.run_prefix} --dir ${base_dir}/output --inputtype admixture --file ${base_dir}/input/!{Qzip} --indtopop ${base_dir}/input/clumpak_pop_map.txt --mclthreshold !{params.mclthreshold} 2> CLUMPAK_!{params.run_prefix}.stderr > CLUMPAK_!{params.run_prefix}.stdout
    popd
    #Since there are a ton of different outputs, let's just throw them into a tarball for export:
-   tar -czf CLUMPAK_!{params.run_name}_output.tar.gz output/
+   tar -czf CLUMPAK_!{params.run_prefix}_output.tar.gz output/
    '''
 }
