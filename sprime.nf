@@ -23,7 +23,7 @@ params.arcvcf_glob = "${projectDir}/archaic_VCFs/*.vcf.gz"
 //Include/filter expression to apply to input VCFs:
 params.input_filter_str = ""
 //Sample ID file for exclusion:
-params.samples_to_exclude = "/dev/null"
+params.samples_to_exclude = "<(echo)"
 
 //Reference-related parameters for the pipeline:
 params.ref_prefix = "/gpfs/gibbs/pi/tucci/pfr8/refs"
