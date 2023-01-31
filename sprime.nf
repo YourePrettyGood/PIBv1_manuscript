@@ -372,7 +372,7 @@ process sprime_tractfreqs {
    for chr in {!{params.autosomes}};
       do
       bcftools query -f '%CHROM:%POS[\t%GT]\n' -r ${chr} -H -S !{qpop}_samples.tsv !{qpop}_chr${chr}_nomissinggenos.vcf.gz | \
-         !{projectDir}/HumanPopGenScripts/Sprime/SprimeArchaicAF.awk -v "spop=!{pop}" -v "pop=!{qpop}" !{pop}_chr${chr}_Sprime.score - | \
+         !{projectDir}/HumanPopGenScripts/Sprime/SprimeArchaicAF.awk -v "spop=!{pop}" -v "pop=!{qpop}" -v "all=1" !{pop}_chr${chr}_Sprime.score - | \
          !{projectDir}/HumanPopGenScripts/Sprime/SprimeTractMedianAF.awk
    done | \
       gzip -9 > !{pop}_Sprime_!{qpop}_tract_freqs.tsv.gz
@@ -431,7 +431,7 @@ process cat_outs {
    path matchrates from Sprime_matchrates.collectFile() { [ "matchrate_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
    path projections from Sprime_project_BEDs.collectFile() { [ "projection_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
    path tractfreqs from Sprime_tract_freqs_tocat.map({ it[2] }).collectFile() { [ "tractfreq_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
-   path genelists from Sprime_gene_lists.map({ it[1] }).collectFile() { [ "genelist_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
+   path genelists from Sprime_gene_lists.map({ it[2] }).collectFile() { [ "genelist_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
    path targetpops from sprime_target_pops.collectFile(name: 'Sprime_target_populations.txt', newLine: true, sort: true)
    path metadata
    path excluded_samples
@@ -474,7 +474,7 @@ process cat_outs {
    while IFS=$'\t' read p;
       do
       if [[ "${header}" == "1" ]]; then
-         printf "Chromosome\tStart\tEnd\tTractID\tQueryPop\tMedianAF\tMinAF\tMaxAF\n"
+         printf "Chromosome\tStart\tEnd\tTractID\tQueryPop\tMedianAF\tMinAF\tMaxAF\tNumSites\n"
          header=""
       fi
       while IFS=$'\t' read q;
