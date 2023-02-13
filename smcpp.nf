@@ -82,8 +82,6 @@ Channel
    .tap { samples_fordistfiltering }
    .map { [ it[1], it[0] ] }
    .tap { pop_map }
-   .tap { pop_map_msmc2 }
-   .tap { pop_map_msmc2_ccr }
    .subscribe { "Added ${it[0]}->${it[1]} to pop_map channel" }
 
 //Set up the channel for all of the per-sample BAMs and their indices:
@@ -109,8 +107,25 @@ num_autosomes = params.autosomes.tokenize(',').size()
 Channel
    .fromList(params.autosomes.tokenize(','))
    .tap { autosomes }
-   .tap { autosomes_msmc2 }
-   .tap { autosomes_msmc2_ccr }
+
+//Set up an optional file channel for the mappability mask for MSMC2:
+params.mappability_mask = ""
+mappability_mask = file(params.mappability_mask)
+
+//Tap any channels necessary for MSMC2 if it's enabled/selected:
+if (params.run_msmc2) {
+   autosomes
+      .tap { autosomes_msmc2 }
+      .tap { autosomes_msmc2_ccr }
+   pop_map
+      .tap { pop_map_msmc2 }
+      .tap { pop_map_msmc2_ccr }
+} else {
+   autosomes_msmc2 = Channel.empty()
+   autosomes_msmc2_ccr = Channel.empty()
+   pop_map_msmc2 = Channel.empty()
+   pop_map_msmc2_ccr = Channel.empty()
+}
 
 //Set up the file channels for the metadata file:
 metadata = file(params.metadata_file, checkIfExists: true)
@@ -124,21 +139,26 @@ ref_dict = file(params.ref.replaceFirst("[.]fn?a(sta)?([.]gz)?", ".dict"), check
 ref_fai = file(params.ref+'.fai', checkIfExists: true)
 
 //A couple extra channels if CHIMP is to be run:
-Channel
-   .fromPath(params.ref_bychrom_glob, checkIfExists: true)
-   .ifEmpty { error "Unable to find per-chromosome reference FASTAs for CHIMP matching glob: ${params.ref_bychrom_glob}" }
-   .map { a -> [ (a.getSimpleName() =~ params.ref_bychrom_regex)[0][1], a] }
-   .filter { params.autosomes.tokenize(",").contains(it[0]) }
-   .tap { refs }
-   .subscribe { println "Added ${it[0]} (${it[1]}) to refs channel for CHIMP" }
+if (params.run_chimp) {
+   Channel
+      .fromPath(params.ref_bychrom_glob, checkIfExists: true)
+      .ifEmpty { error "Unable to find per-chromosome reference FASTAs for CHIMP matching glob: ${params.ref_bychrom_glob}" }
+      .map { a -> [ (a.getSimpleName() =~ params.ref_bychrom_regex)[0][1], a] }
+      .filter { params.autosomes.tokenize(",").contains(it[0]) }
+      .tap { refs }
+      .subscribe { println "Added ${it[0]} (${it[1]}) to refs channel for CHIMP" }
 
-Channel
-   .fromPath(params.anc_bychrom_glob, checkIfExists: true)
-   .ifEmpty { error "Unable to find per-chromosome ancestral state FASTAs for CHIMP matching glob: ${params.anc_bychrom_glob}" }
-   .map { a -> [ (a.getSimpleName() =~ params.anc_bychrom_regex)[0][1], a] }
-   .filter { params.autosomes.tokenize(",").contains(it[0]) }
-   .tap { ancs }
-   .subscribe { println "Added ${it[0]} (${it[1]}) to ancs channel for CHIMP" }
+   Channel
+      .fromPath(params.anc_bychrom_glob, checkIfExists: true)
+      .ifEmpty { error "Unable to find per-chromosome ancestral state FASTAs for CHIMP matching glob: ${params.anc_bychrom_glob}" }
+      .map { a -> [ (a.getSimpleName() =~ params.anc_bychrom_regex)[0][1], a] }
+      .filter { params.autosomes.tokenize(",").contains(it[0]) }
+      .tap { ancs }
+      .subscribe { println "Added ${it[0]} (${it[1]}) to ancs channel for CHIMP" }
+} else {
+   refs = Channel.empty()
+   ancs = Channel.empty()
+}
 
 //Default parameter values:
 //Filters to apply to the VCF:
@@ -241,7 +261,7 @@ process smcpp_vcf_subset {
 
    output:
    tuple path("bcftools_view_smcpp_${pop}_chr${chrom}.stderr"), path("bcftools_view_smcpp_${pop}_chr${chrom}.stdout") into smcpp_vcf_subset_logs
-   tuple val(pop), val(chrom), path("${pop}_chr${chrom}.vcf.gz"), path("${pop}_chr${chrom}.vcf.gz.tbi") into smcpp_vcfs,msmc2_vcfs,msmc2_ccr_vcfs,chimp_vcfs
+   tuple val(pop), val(chrom), path("${pop}_chr${chrom}.vcf.gz"), path("${pop}_chr${chrom}.vcf.gz.tbi") into smcpp_vcfs
 
    shell:
    '''
@@ -251,6 +271,23 @@ process smcpp_vcf_subset {
    bcftools view -S !{pop}_samples.tsv -Oz -o !{pop}_chr!{chrom}.vcf.gz !{input_vcf} 2> bcftools_view_smcpp_!{pop}_chr!{chrom}.stderr > bcftools_view_smcpp_!{pop}_chr!{chrom}.stdout
    tabix -f !{pop}_chr!{chrom}.vcf.gz
    '''
+}
+
+//Tap the VCF channel for MSMC2 if enabled/selected:
+if (params.run_msmc2) {
+   smcpp_vcfs
+      .tap { msmc2_vcfs }
+      .tap { msmc2_ccr_vcfs }
+} else {
+   msmc2_vcfs = Channel.empty()
+   msmc2_ccr_vcfs = Channel.empty()
+}
+//Tap the VCF channel for CHIMP if enabled/selected:
+if (params.run_chimp) {
+   smcpp_vcfs
+      .tap { chimp_vcfs }
+} else {
+   chimp_vcfs = Channel.empty()
 }
 
 process mosdepth {
@@ -273,7 +310,7 @@ process mosdepth {
    output:
    tuple path("mosdepth_quantize_${sampleid}.stderr"), path("mosdepth_quantize_${sampleid}.stdout") into mosdepth_logs
    tuple val(sampleid), path("${sampleid}.mask.bed.gz") into mosdepth_masks
-   tuple val(sampleid), path("${sampleid}.callable.bed.gz") into mosdepth_callable,mosdepth_callable_ccr
+   tuple val(sampleid), path("${sampleid}.callable.bed.gz") into mosdepth_callable
 
    shell:
    '''
@@ -287,6 +324,14 @@ process mosdepth {
       awk 'BEGIN{FS="\t";OFS=FS;}$4=="CALLABLE"{print $1, $2, $3;}' | \
       gzip -9 > !{sampleid}.callable.bed.gz
    '''
+}
+
+//Tap the mosdepth_callable channel for MSMC2 if enabled/selected:
+if (params.run_msmc2) {
+   mosdepth_callable
+      .tap { mosdepth_callable_ccr }
+} else {
+   mosdepth_callable_ccr = Channel.empty()
 }
 
 process pop_mask {
@@ -402,7 +447,6 @@ process smcpp_estimate {
                                                         .map({ [ (it.getSimpleName() =~ ~/^(.+?)_/)[0][1], it ] })
                                                         .collectFile() { [ "${it[0]}.txt", it[1].getSimpleName()+'\t'+it[1].getName()+'\t'+it[1]+'\n' ] }
                                                         .map({ [ it.getSimpleName(), it ] })
-//   tuple val(pop), path(smcinputs) from smcpp_inputs.groupTuple(by: 0, size: smcpp_chroms_times_dlineages)
 
    output:
    tuple path("smcpp_estimate_${pop}.stderr"), path("smcpp_estimate_${pop}.stdout"), path(".debug.txt") into smcpp_estimate_logs
@@ -553,12 +597,14 @@ process msmc2_ccr_prep {
       .tap { msmc2_ccr_tpop }
       .combine(msmc2_ccr_tpop, by: 0)
       .filter({ it[1].compareTo(it[5]) < 0 })
+   path mappability_mask
 
    output:
    tuple path("bcftools_view_bSNPs_msmc2_ccr_${qpop}_samples_chr${chrom}.stderr"), path("bcftools_view_bSNPs_msmc2_ccr_${tpop}_samples_chr${chrom}.stderr"), path("bcftools_split_msmc2_ccr_${qpop}_samples_chr${chrom}.stderr"), path("bcftools_split_msmc2_ccr_${tpop}_samples_chr${chrom}.stderr"), path("bcftools_split_msmc2_ccr_${qpop}_samples_chr${chrom}.stdout"), path("bcftools_split_msmc2_ccr_${tpop}_samples_chr${chrom}.stdout"), path("generate_multihetsep_${qpop}_${tpop}_chr${chrom}.stderr") into msmc2_ccr_prep_logs
    tuple val(qpop), val(tpop), path("${qpop}_${tpop}_chr${chrom}_multihetsep.txt") into msmc2_ccr_inputs
 
    shell:
+   mapmask = mappability_mask.exists() ? "--negative_mask ${mappability_mask}" : ""
    '''
    module load !{params.mod_bcftools}
    #Function for seeding PRNGs in utilities like shuf, shred, and sort:
@@ -582,7 +628,7 @@ process msmc2_ccr_prep {
    #Now generate the multihetsep files using the per-sample callable BEDs and VCFs:
    module load !{params.mod_python}
    module load !{params.mod_msmctools}
-   maskargs=""
+   maskargs="!{mapmask}"
    vcfargs=""
    while read sampleid;
       do
@@ -616,14 +662,6 @@ process msmc2_ccr {
    input:
    tuple val(qpop), val(tpop), path(multihetseps) from msmc2_ccr_inputs
       .groupTuple(by: [0, 1])
-/*   tuple val(qpop), val(tpop), path(multihetseps), path(tpopfit), path(qpopfit) from msmc2_ccr_inputs
-      .groupTuple(by: [0, 1])
-      .map({ [ it[1], it[0], it[2] ] })
-      .combine(msmc2_output_tpop
-         .map({ [ it[0], it[2] ] }), by: 0)
-      .map({ [ it[1], it[0], it[2], it[3] ] })
-      .combine(msmc2_output
-         .map({ [ it[0], it[2] ] }), by: 0)*/
 
    output:
    tuple path("msmc2_${qpop}_pair_${qpop}_${tpop}.stderr"), path("msmc2_${qpop}_pair_${qpop}_${tpop}.stdout"), path("msmc2_${tpop}_pair_${qpop}_${tpop}.stderr"), path("msmc2_${tpop}_pair_${qpop}_${tpop}.stdout") into msmc2_logs
