@@ -223,7 +223,7 @@ process clumpak {
    #Set the CWD to the staged CLUMPAK install:
    pushd !{params.clumpak_path}/
    #Run CLUMPAK with absolute paths:
-   perl CLUMPAK.pl !{customdraw} --id !{params.plink_prefix} --dir ${base_dir}/output --inputtype admixture --file ${base_dir}/input/!{Qzip} --indtopop ${base_dir}/input/clumpak_pop_map.txt --mclthreshold !{params.mclthreshold} 2> CLUMPAK_!{params.plink_prefix}.stderr > CLUMPAK_!{params.plink_prefix}.stdout
+   perl CLUMPAK.pl !{customdraw} --id clumpak_run --dir ${base_dir}/output --inputtype admixture --file ${base_dir}/input/!{Qzip} --indtopop ${base_dir}/input/clumpak_pop_map.txt --mclthreshold !{params.mclthreshold} 2> CLUMPAK_!{params.plink_prefix}.stderr > CLUMPAK_!{params.plink_prefix}.stdout
    popd
    #Since there are a ton of different outputs, let's just throw them into a tarball for export:
    tar -czf CLUMPAK_!{params.plink_prefix}_output.tar.gz output/
