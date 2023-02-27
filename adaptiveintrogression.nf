@@ -320,7 +320,7 @@ process corehaps_project {
 }
 
 process corehaps_tractfreqs {
-   tag "${pop} ${qpop} chr${chrom}"
+   tag "${pop} chr${chrom}"
 
    cpus params.coretf_cpus
    memory { params.coretf_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
@@ -329,26 +329,25 @@ process corehaps_tractfreqs {
    maxRetries 1
 
    input:
-   tuple val(qpop), val(pop), path(corehapscores), val(chrom), path(vcf), path(tbi) from sprime_pops_for_tractfreqs
-      .combine(corehaps_score_for_tractfreqs)
+   tuple val(pop), path(corehapscores), val(chrom), path(vcf), path(tbi) from corehaps_score_for_tractfreqs
       .combine(perchrom_vcfs_for_tractfreqs)
    path metadata
    path excluded_samples
 
    output:
-   tuple val(pop), val(qpop), val(chrom), path("${pop}_chr${chrom}_Sprime_${qpop}_corehap_freqs.tsv.gz") into corehaps_tract_freqs_for_genes,corehaps_tract_freqs_for_cat
+   tuple val(pop), val(chrom), path("${pop}_chr${chrom}_Sprime_${pop}_corehap_freqs.tsv.gz") into corehaps_tract_freqs_for_genes,corehaps_tract_freqs_for_cat
 
    shell:
    '''
    module load !{params.mod_bcftools}
    #Identify the samples for this population:
-   !{projectDir}/HumanPopGenScripts/selectSubsamples.awk -v "idcol=!{params.id_colname}" -v "selectcol=!{params.sprime_target_colname}" -v "select=!{qpop}" !{metadata} | \
-      !{projectDir}/HumanPopGenScripts/excludeSamples.awk !{excluded_samples} - > !{qpop}_pop_samples.tsv
+   !{projectDir}/HumanPopGenScripts/selectSubsamples.awk -v "idcol=!{params.id_colname}" -v "selectcol=!{params.sprime_target_colname}" -v "select=!{pop}" !{metadata} | \
+      !{projectDir}/HumanPopGenScripts/excludeSamples.awk !{excluded_samples} - > !{pop}_pop_samples.tsv
    #Calculate the median Sprime allele frequency for each tract:
-   bcftools query -f '%CHROM:%POS[\t%GT]\n' -r !{chrom} -H -S !{qpop}_pop_samples.tsv !{vcf} | \
-      !{projectDir}/HumanPopGenScripts/Sprime/SprimeArchaicAF.awk -v "spop=!{pop}" -v "pop=!{qpop}" -v "all=1" !{corehapscores} - | \
+   bcftools query -f '%CHROM:%POS[\t%GT]\n' -r !{chrom} -H -S !{pop}_pop_samples.tsv !{vcf} | \
+      !{projectDir}/HumanPopGenScripts/Sprime/SprimeArchaicAF.awk -v "spop=!{pop}" -v "pop=!{pop}" -v "all=1" !{corehapscores} - | \
       !{projectDir}/HumanPopGenScripts/Sprime/SprimeTractMedianAF.awk | \
-      gzip -9 > !{pop}_chr!{chrom}_Sprime_!{qpop}_corehap_freqs.tsv.gz
+      gzip -9 > !{pop}_chr!{chrom}_Sprime_!{pop}_corehap_freqs.tsv.gz
    '''
 }
 
@@ -362,8 +361,7 @@ process corehaps_genes {
    maxRetries 1
 
    input:
-   tuple val(pop), val(qpop), val(chrom), path("${pop}_chr${chrom}_Sprime_${qpop}_corehap_freqs.tsv.gz") from corehaps_tract_freqs_for_genes
-      .filter({ it[0] == it[1] })
+   tuple val(pop), val(chrom), path("${pop}_chr${chrom}_Sprime_${pop}_corehap_freqs.tsv.gz") from corehaps_tract_freqs_for_genes
    path annotation_gff
 
    output:
@@ -403,7 +401,7 @@ process cat_outs {
       .map({ it[1] })
       .collectFile() { [ "projection_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
    path tractfreqs from corehaps_tract_freqs_for_cat
-      .map({ it[3] })
+      .map({ it[2] })
       .collectFile() { [ "tractfreq_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
    path genelists from corehaps_gene_lists
       .map({ [ it[1], it[2] ] })
@@ -414,7 +412,7 @@ process cat_outs {
    path excluded_samples
 
    output:
-   tuple path("${params.run_name}_Sprime_perChrom_perIndiv_perPop_corehap_lengths.tsv.gz"), path("${params.run_name}_Sprime_allPopPairs_corehap_freqs.tsv.gz"), path("${params.run_name}_Sprime_targetpop_corehap_freqs.tsv.gz"), path("${params.run_name}_Sprime_corehaps_gene_name_lists.tcsv.gz"), path("${params.run_name}_Sprime_corehaps_gene_lists.tcsv.gz") into catouts_outputs
+   tuple path("${params.run_name}_Sprime_perChrom_perIndiv_perPop_corehap_lengths.tsv.gz"), path("${params.run_name}_Sprime_targetpop_corehap_freqs.tsv.gz"), path("${params.run_name}_Sprime_corehaps_gene_name_lists.tcsv.gz"), path("${params.run_name}_Sprime_corehaps_gene_lists.tcsv.gz") into catouts_outputs
 
    shell:
    '''
@@ -437,25 +435,6 @@ process cat_outs {
       header="";
    done < !{targetpops} | \
       gzip -9 > !{params.run_name}_Sprime_perChrom_perIndiv_perPop_corehap_lengths.tsv.gz
-   unset header
-   #Concatenate tract frequency files and add a header:
-   header=1
-   for chrom in ${chroms[@]};
-      do
-      while IFS=$'\t' read p;
-         do
-         if [[ "${header}" == "1" ]]; then
-            printf "Chromosome\tStart\tEnd\tTractID\tQueryPop\tMedianAF\tMinAF\tMaxAF\tNumSites\n"
-            header=""
-         fi
-         while IFS=$'\t' read q;
-            do
-            gzip -dc ${p}_chr${chrom}_Sprime_${q}_corehap_freqs.tsv.gz | \
-               sort -k1,1V -k2,2n -k3,3n;
-         done < !{targetpops};
-      done < !{targetpops};
-   done | \
-      gzip -9 > !{params.run_name}_Sprime_allPopPairs_corehap_freqs.tsv.gz
    unset header
    #Concatenate tract frequency files only for target pops as query and add a header:
    header=1
