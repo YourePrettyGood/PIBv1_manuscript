@@ -50,6 +50,7 @@ Channel
    .tap { sprime_pops }
    .tap { sprime_target_pops }
    .tap { sprime_pops_for_tractfreqs }
+   .tap { sprime_target_pops_for_tractmap }
    .subscribe { println "Added ${it} to sprime_pops channel" }
 
 //Set up the channels of Sprime match and match rate files:
@@ -133,6 +134,10 @@ params.coregenes_timeout = '24h'
 params.catouts_cpus = 1
 params.catouts_mem = 1
 params.catouts_timeout = '2h'
+//Construct map from core haplotype to Sprime tract
+params.tractmap_cpus = 1
+params.tractmap_mem = 1
+params.tractmap_timeout = '1h'
 
 //Preprocess the per-chromosome VCF channel to include the indices:
 perchrom_vcfs
@@ -271,12 +276,14 @@ process core_score {
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
 
+   publishDir path: "${params.output_dir}/corehaps", mode: 'copy', pattern: '*.tsv'
+
    input:
    tuple val(pop), path(corehaps), path(matches) from cat_corehaps_output
       .join(sprime_matches_for_score, by: 0, failOnDuplicate: true, failOnMismatch: true)
 
    output:
-   tuple val(pop), path("${pop}_Sprime_corehaps_matches.tsv") into corehaps_score_for_project,corehaps_score_for_tractfreqs
+   tuple val(pop), path("${pop}_Sprime_corehaps_matches.tsv") into corehaps_score_for_project,corehaps_score_for_tractfreqs,corehaps_score_for_tractmap
 
    shell:
    '''
@@ -477,6 +484,45 @@ process cat_outs {
       header="";
    done < !{targetpops} | \
       gzip -9 > !{params.run_name}_Sprime_corehaps_gene_lists.tcsv.gz
+   unset header
+   '''
+}
+
+process tract_map {
+   cpus params.tractmap_cpus
+   memory { params.tractmap_mem.plus(task.attempt.minus(1).multiply(4))+' GB' }
+   time { task.attempt >= 2 ? '24h' : params.tractmap_timeout }
+   errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
+   maxRetries 1
+
+   publishDir path: "${params.output_dir}/corehaps", mode: 'copy', pattern: '*.tsv.gz'
+
+   input:
+   path corescores from corehaps_score_for_tractmap
+      .map({ it[1] })
+      .collectFile() { [ "score_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
+   path targetpops from sprime_target_pops_for_tractmap
+      .collectFile(name: 'Sprime_target_populations.txt', newLine: true, sort: true)
+
+   output:
+   path "${params.run_name}_Sprime_corehap_TractID_map.tsv.gz" into tract_map_output
+
+   shell:
+   '''
+   #Symlink the many input files to avoid SLURM SBATCH script size limits:
+   while IFS=$'\t' read -a a;
+      do
+      ln -s ${a[2]} ${a[1]};
+   done < score_paths.tsv
+   #Generate a map of core haplotype IDs to tract IDs from the adjusted
+   # matches/.score files:
+   header=1
+   while IFS=$'\t' read p;
+      do
+      !{projectDir}/HumanPopGenScripts/Sprime/corehapTractIDmap.awk -v "header=${header}" ${p}_Sprime_corehaps_matches.tsv
+      header="";
+   done < !{targetpops} | \
+      gzip -9 > !{params.run_name}_Sprime_corehap_TractID_map.tsv.gz
    unset header
    '''
 }
