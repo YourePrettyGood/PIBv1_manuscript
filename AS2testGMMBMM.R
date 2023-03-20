@@ -114,10 +114,10 @@ pop_region_map <- bind_rows(PIBv1_metadata %>%
                                          IslandGroup=first(Island)),
                             lumped_pops)
 
-#Load the Sprime tract match rates:
-cat("Loading Sprime match rate file\n")
+#Load the AS2 haplotype match rates:
+cat("Loading AS2 match rate file\n")
 match_rates <- read_tsv(match_rates,
-                        col_types='ciiciininininini') %>%
+                        col_types='ciicicninininini') %>%
    separate(TractID,
             into=c("Population"),
             sep="_",
@@ -125,17 +125,15 @@ match_rates <- read_tsv(match_rates,
             extra="drop")
 cat(paste0("Read in ", nrow(match_rates), " match rates from ", n_distinct(match_rates$Population), " populations\n"))
 
-#Filter the Sprime tract match rates for contour plots:
+#Filter the AS2 match rates:
 #Also add population metadata
-#The filters from Browning et al. 2018 for contour plots were:
-# Ngood >= 10 | Dgood >= 10
-cat("Adding population metadata and minimally filtering Sprime tracts (incl. removal of tracts with NA Denisovan match rate)\n")
+cat("Adding population metadata and selecting Denisovan classified AS2 haplotypes with finite Denisovan match rates\n")
 filtered_match_rates <- match_rates %>%
    left_join(pop_region_map,
              by=c("Population"="AnalysisGroup")) %>%
-   filter(Ngood >= 10 | Dgood >= 10) %>%
+   filter(ASSTATE == "Denisova") %>%
    filter(!is.na(Dmatchrate))
-cat(paste0(nrow(filtered_match_rates), " Sprime tracts retained\n"))
+cat(paste0(nrow(filtered_match_rates), " Denisovan AS2 haplotypes retained\n"))
 
 #Set up the parallel processing backend:
 registerDoParallel(num_threads)
@@ -148,16 +146,12 @@ pops <- (filtered_match_rates %>%
 #Denisovan_bmms <- list()
 Denisovan_gmms <- foreach(p=pops, .inorder=FALSE, .combine=c) %dopar% {
    cat(paste0(filtered_match_rates %>%
-                 filter(Ngood >= 30, Dgood >= 30,
-                        Nmatchrate < 0.3, Dmatchrate > 0.3,
-                        Population == p) %>%
+                 filter(Population == p) %>%
                  nrow(),
               " tracts retained for ", p, "\n"));
    cat(paste0("Running GMM for ", p, "\n"));
    gmm <- filtered_match_rates %>%
-      filter(Ngood >= 30, Dgood >= 30,
-             Nmatchrate < 0.3, Dmatchrate > 0.3,
-             Population == p) %>%
+      filter(Population == p) %>%
       mutate(Dmatchrate=case_when(Dmatchrate == 1.0 ~ 0.9999999,
                                   TRUE ~ Dmatchrate)) %>%
       stepFlexmix(Dmatchrate ~ 1,
@@ -170,16 +164,12 @@ Denisovan_gmms <- foreach(p=pops, .inorder=FALSE, .combine=c) %dopar% {
 }
 Denisovan_bmms <- foreach(p=pops, .inorder=FALSE, .combine=c) %dopar% {
    cat(paste0(filtered_match_rates %>%
-                 filter(Ngood >= 30, Dgood >= 30,
-                        Nmatchrate < 0.3, Dmatchrate > 0.3,
-                        Population == p) %>%
+                 filter(Population == p) %>%
                  nrow(),
               " tracts retained for ", p, "\n"));
    cat(paste0("Running BMM for ", p, "\n"));
    bmm <- filtered_match_rates %>%
-      filter(Ngood >= 30, Dgood >= 30,
-             Nmatchrate < 0.3, Dmatchrate > 0.3,
-             Population == p) %>%
+      filter(Population == p) %>%
       mutate(Dmatchrate=case_when(Dmatchrate == 1.0 ~ 0.9999999,
                                   TRUE ~ Dmatchrate)) %>%
       possibly(.f=betamix,
@@ -264,8 +254,6 @@ for (p in names(Denisovan_bmms)) {
 cat("Adding tract counts to best fit data.frames\n")
 Denisovan_gmm_bestfits <- Denisovan_gmm_bestfits %>%
    left_join(filtered_match_rates %>%
-                filter(Ngood >= 30, Dgood >= 30,
-                       Nmatchrate < 0.3, Dmatchrate > 0.3) %>%
                 group_by(Population) %>%
                 summarize(TractCount=n()),
              by="Population") %>%
@@ -273,195 +261,250 @@ Denisovan_gmm_bestfits <- Denisovan_gmm_bestfits %>%
 
 Denisovan_bmm_bestfits <- Denisovan_bmm_bestfits %>%
    left_join(filtered_match_rates %>%
-                filter(Ngood >= 30, Dgood >= 30,
-                       Nmatchrate < 0.3, Dmatchrate > 0.3) %>%
                 group_by(Population) %>%
                 summarize(TractCount=n()),
              by="Population") %>%
    mutate(Dmatchrate=0.0)
 
 #Now make the mixture model fit plots:
+cat("Plotting GMM fits\n")
+#Test 6 populations:
+test_6_pops <- c("French", "Han",
+                 "Agta", "Nasioi",
+                 "Baining-Kagat", "Baining-Mali")
+test_6_pops_annot <- c("EUR-French", "EAS-Han",
+                       "ISEA-Agta", "OCN-Nasioi",
+                       "OCN-Baining-Kagat", "OCN-Baining-Mali")
+#GMM:
+test_6_den_gmmfits <- filtered_match_rates %>%
+   filter(Population %in% test_6_pops) %>%
+   mutate(Population=factor(Population,
+                            levels=test_6_pops,
+                            labels=test_6_pops_annot)) %>%
+   ggplot(aes(x=Dmatchrate, fill=Population)) +
+      geom_histogram(binwidth=binwidth) +
+      geom_gmm_density(Denisovan_gmm_bestfits %>%
+                          filter(Population %in% test_6_pops) %>%
+                          mutate(Population=factor(Population,
+                                                   levels=test_6_pops,
+                                                   labels=test_6_pops_annot)),
+                       binwidth=binwidth) +
+      theme_bw() +
+      scale_fill_brewer(palette="Spectral") +
+      facet_wrap(~ Population,
+                 ncol=2) +
+      guides(fill=FALSE) +
+      labs(x="Denisovan match rate",
+           y="Number of tracts")
+ggsave(paste0(output_prefix, '_test6Pops_Denisovan_GMMfits.pdf'),
+       plot=test_6_den_gmmfits,
+       width=16.0,
+       height=12.0,
+       units="cm",
+       dpi=500)
+#BMM:
+cat("Plotting BMM fits\n")
+test_6_den_bmmfits <- filtered_match_rates %>%
+   filter(Population %in% test_6_pops) %>%
+   mutate(Population=factor(Population,
+                            levels=test_6_pops,
+                            labels=test_6_pops_annot)) %>%
+   ggplot(aes(x=Dmatchrate, fill=Population)) +
+      geom_histogram(binwidth=binwidth) +
+      geom_bmm_density(Denisovan_bmm_bestfits %>%
+                          filter(Population %in% test_6_pops) %>%
+                          mutate(Population=factor(Population,
+                                                   levels=test_6_pops,
+                                                   labels=test_6_pops_annot)),
+                       binwidth=binwidth) +
+      theme_bw() +
+      scale_fill_brewer(palette="Spectral") +
+      facet_wrap(~ Population,
+                 ncol=2) +
+      guides(fill=FALSE) +
+      labs(x="Denisovan match rate",
+           y="Number of tracts")
+ggsave(paste0(output_prefix, '_test6Pops_Denisovan_BMMfits.pdf'),
+       plot=test_6_den_bmmfits,
+       width=16.0,
+       height=12.0,
+       units="cm",
+       dpi=500)
 #One population selected per geographic region:
-worldwide_pops <- c("French", "Maya",
-                    "Hazara", "Dai",
-                    "Rampasasa", "Baining-Kagat")
-worldwide_pops_annot <- c("EUR-French", "AMR-Maya",
-                          "CSA-Hazara", "EAS-Dai",
-                          "ISEA-Rampasasa", "OCN-Baining-Kagat")
-#GMM:
-cat("Plotting worldwide GMM fits\n")
-worldwide_den_gmmfits <- filtered_match_rates %>%
-   filter(Ngood >= 30, Dgood >= 30,
-          Nmatchrate < 0.3, Dmatchrate > 0.3) %>%
-   filter(Population %in% worldwide_pops) %>%
-   mutate(Population=factor(Population,
-                            levels=worldwide_pops,
-                            labels=worldwide_pops_annot)) %>%
-   ggplot(aes(x=Dmatchrate, fill=Population)) +
-      geom_histogram(binwidth=binwidth) +
-      geom_gmm_density(Denisovan_gmm_bestfits %>%
-                          filter(Population %in% worldwide_pops) %>%
-                          mutate(Population=factor(Population,
-                                                   levels=worldwide_pops,
-                                                   labels=worldwide_pops_annot)),
-                       binwidth=binwidth) +
-      theme_bw() +
-      scale_fill_brewer(palette="Spectral") +
-      facet_wrap(~ Population,
-                 ncol=2) +
-      guides(fill=FALSE) +
-      labs(x="Denisovan match rate",
-           y="Number of tracts")
-ggsave(paste0(output_prefix, '_byRegionCuratedPops_Denisovan_GMMfits.pdf'),
-       plot=worldwide_den_gmmfits,
-       width=16.0,
-       height=12.0,
-       units="cm",
-       dpi=500)
-#BMM:
-cat("Plotting worldwide BMM fits\n")
-worldwide_den_bmmfits <- filtered_match_rates %>%
-   filter(Ngood >= 30, Dgood >= 30,
-          Nmatchrate < 0.3, Dmatchrate > 0.3) %>%
-   filter(Population %in% worldwide_pops) %>%
-   mutate(Population=factor(Population,
-                            levels=worldwide_pops,
-                            labels=worldwide_pops_annot)) %>%
-   ggplot(aes(x=Dmatchrate, fill=Population)) +
-      geom_histogram(binwidth=binwidth) +
-      geom_bmm_density(Denisovan_bmm_bestfits %>%
-                          filter(Population %in% worldwide_pops) %>%
-                          mutate(Population=factor(Population,
-                                                   levels=worldwide_pops,
-                                                   labels=worldwide_pops_annot)),
-                       binwidth=binwidth) +
-      theme_bw() +
-      scale_fill_brewer(palette="Spectral") +
-      facet_wrap(~ Population,
-                 ncol=2) +
-      guides(fill=FALSE) +
-      labs(x="Denisovan match rate",
-           y="Number of tracts")
-ggsave(paste0(output_prefix, '_byRegionCuratedPops_Denisovan_BMMfits.pdf'),
-       plot=worldwide_den_bmmfits,
-       width=16.0,
-       height=12.0,
-       units="cm",
-       dpi=500)
+#worldwide_pops <- c("French", "Maya",
+#                    "Hazara", "Dai",
+#                    "Rampasasa", "Baining-Kagat")
+#worldwide_pops_annot <- c("EUR-French", "AMR-Maya",
+#                          "CSA-Hazara", "EAS-Dai",
+#                          "ISEA-Rampasasa", "OCN-Baining-Kagat")
+##GMM:
+#worldwide_den_gmmfits <- filtered_match_rates %>%
+#   filter(Ngood >= 30, Dgood >= 30,
+#          Nmatchrate < 0.3, Dmatchrate > 0.3) %>%
+#   filter(Population %in% worldwide_pops) %>%
+#   mutate(Population=factor(Population,
+#                            levels=worldwide_pops,
+#                            labels=worldwide_pops_annot)) %>%
+#   ggplot(aes(x=Dmatchrate, fill=Population)) +
+#      geom_histogram(binwidth=binwidth) +
+#      geom_gmm_density(Denisovan_gmm_bestfits %>%
+#                          filter(Population %in% worldwide_pops) %>%
+#                          mutate(Population=factor(Population,
+#                                                   levels=worldwide_pops,
+#                                                   labels=worldwide_pops_annot)),
+#                       binwidth=binwidth) +
+#      theme_bw() +
+#      scale_fill_brewer(palette="Spectral") +
+#      facet_wrap(~ Population,
+#                 ncol=2) +
+#      guides(fill=FALSE) +
+#      labs(x="Denisovan match rate",
+#           y="Number of tracts")
+#ggsave(paste0(output_prefix, '_byRegionCuratedPops_Denisovan_GMMfits.pdf'),
+#       plot=worldwide_den_gmmfits,
+#       width=16.0,
+#       height=12.0,
+#       units="cm",
+#       dpi=500)
+##BMM:
+#worldwide_den_bmmfits <- filtered_match_rates %>%
+#   filter(Ngood >= 30, Dgood >= 30,
+#          Nmatchrate < 0.3, Dmatchrate > 0.3) %>%
+#   filter(Population %in% worldwide_pops) %>%
+#   mutate(Population=factor(Population,
+#                            levels=worldwide_pops,
+#                            labels=worldwide_pops_annot)) %>%
+#   ggplot(aes(x=Dmatchrate, fill=Population)) +
+#      geom_histogram(binwidth=binwidth) +
+#      geom_bmm_density(Denisovan_bmm_bestfits %>%
+#                          filter(Population %in% worldwide_pops) %>%
+#                          mutate(Population=factor(Population,
+#                                                   levels=worldwide_pops,
+#                                                   labels=worldwide_pops_annot)),
+#                       binwidth=binwidth) +
+#      theme_bw() +
+#      scale_fill_brewer(palette="Spectral") +
+#      facet_wrap(~ Population,
+#                 ncol=2) +
+#      guides(fill=FALSE) +
+#      labs(x="Denisovan match rate",
+#           y="Number of tracts")
+#ggsave(paste0(output_prefix, '_byRegionCuratedPops_Denisovan_BMMfits.pdf'),
+#       plot=worldwide_den_bmmfits,
+#       width=16.0,
+#       height=12.0,
+#       units="cm",
+#       dpi=500)
 
-#Only PIB populations::
-PIB_pops <- c("Ata", "Baining-Kagat",
-              "Baining-Mali", "Kove",
-              "Lavongai-Mussau", "Mamusi",
-              "Mangseng", "Melamela",
-              "Nailik-Notsi-Tigak", "Nakanai",
-              "Saposa")
-#GMM:
-cat("Plotting PIB GMM fits\n")
-PIB_den_gmmfits <- filtered_match_rates %>%
-   filter(Ngood >= 30, Dgood >= 30,
-          Nmatchrate < 0.3, Dmatchrate > 0.3) %>%
-   filter(Population %in% PIB_pops) %>%
-   ggplot(aes(x=Dmatchrate, fill=Population)) +
-      geom_histogram(binwidth=binwidth) +
-      geom_gmm_density(Denisovan_gmm_bestfits %>%
-                          filter(Population %in% PIB_pops),
-                       binwidth=binwidth) +
-      theme_bw() +
-      scale_fill_brewer(palette="Spectral") +
-      facet_wrap(~ Population,
-                 ncol=2) +
-      guides(fill=FALSE) +
-      labs(x="Denisovan match rate",
-      y="Number of tracts")
-ggsave(paste0(output_prefix, '_byAnalysisGroupPIB_Denisovan_GMMfits.pdf'),
-       plot=PIB_den_gmmfits,
-       width=16.0,
-       height=12.0,
-       units="cm",
-       dpi=500)
-#BMM:
-cat("Plotting PIB BMM fits\n")
-PIB_den_bmmfits <- filtered_match_rates %>%
-   filter(Ngood >= 30, Dgood >= 30,
-          Nmatchrate < 0.3, Dmatchrate > 0.3) %>%
-   filter(Population %in% PIB_pops) %>%
-   ggplot(aes(x=Dmatchrate, fill=Population)) +
-      geom_histogram(binwidth=binwidth) +
-      geom_bmm_density(Denisovan_bmm_bestfits %>%
-                          filter(Population %in% PIB_pops),
-                       binwidth=binwidth) +
-      theme_bw() +
-      scale_fill_brewer(palette="Spectral") +
-      facet_wrap(~ Population,
-                 ncol=2) +
-      guides(fill=FALSE) +
-      labs(x="Denisovan match rate",
-      y="Number of tracts")
-ggsave(paste0(output_prefix, '_byAnalysisGroupPIB_Denisovan_BMMfits.pdf'),
-       plot=PIB_den_bmmfits,
-       width=16.0,
-       height=12.0,
-       units="cm",
-       dpi=500)
+##Only PIB populations::
+#PIB_pops <- c("Ata", "Baining-Kagat",
+#              "Baining-Mali", "Kove",
+#              "Lavongai-Mussau", "Mamusi",
+#              "Mangseng", "Melamela",
+#              "Nailik-Notsi-Tigak", "Nakanai",
+#              "Saposa")
+##GMM:
+#PIB_den_gmmfits <- filtered_match_rates %>%
+#   filter(Ngood >= 30, Dgood >= 30,
+#          Nmatchrate < 0.3, Dmatchrate > 0.3) %>%
+#   filter(Population %in% PIB_pops) %>%
+#   ggplot(aes(x=Dmatchrate, fill=Population)) +
+#      geom_histogram(binwidth=binwidth) +
+#      geom_gmm_density(Denisovan_gmm_bestfits %>%
+#                          filter(Population %in% PIB_pops),
+#                       binwidth=binwidth) +
+#      theme_bw() +
+#      scale_fill_brewer(palette="Spectral") +
+#      facet_wrap(~ Population,
+#                 ncol=2) +
+#      guides(fill=FALSE) +
+#      labs(x="Denisovan match rate",
+#      y="Number of tracts")
+#ggsave(paste0(output_prefix, '_byAnalysisGroupPIB_Denisovan_GMMfits.pdf'),
+#       plot=PIB_den_gmmfits,
+#       width=16.0,
+#       height=12.0,
+#       units="cm",
+#       dpi=500)
+##BMM:
+#PIB_den_bmmfits <- filtered_match_rates %>%
+#   filter(Ngood >= 30, Dgood >= 30,
+#          Nmatchrate < 0.3, Dmatchrate > 0.3) %>%
+#   filter(Population %in% PIB_pops) %>%
+#   ggplot(aes(x=Dmatchrate, fill=Population)) +
+#      geom_histogram(binwidth=binwidth) +
+#      geom_bmm_density(Denisovan_bmm_bestfits %>%
+#                          filter(Population %in% PIB_pops),
+#                       binwidth=binwidth) +
+#      theme_bw() +
+#      scale_fill_brewer(palette="Spectral") +
+#      facet_wrap(~ Population,
+#                 ncol=2) +
+#      guides(fill=FALSE) +
+#      labs(x="Denisovan match rate",
+#      y="Number of tracts")
+#ggsave(paste0(output_prefix, '_byAnalysisGroupPIB_Denisovan_BMMfits.pdf'),
+#       plot=PIB_den_bmmfits,
+#       width=16.0,
+#       height=12.0,
+#       units="cm",
+#       dpi=500)
 
 
-#Oceania without Solomons (or Vanuatu):
-OCNnoSolomons_pops <- c("Ata", "Baining-Kagat",
-                        "Baining-Mali", "Goroka",
-                        "Kove", "Lavongai-Mussau",
-                        "Mamusi", "Mangseng",
-                        "Melamela", "Nailik-Notsi-Tigak",
-                        "Nakanai", "Nasioi",
-                        "Saposa", "Sepik"))
-#GMM:
-cat("Plotting Oceania (no Solomons or Vanuatu) GMM fits\n")
-OCNnoSolomons_den_gmmfits <- filtered_match_rates %>%
-   filter(Ngood >= 30, Dgood >= 30,
-          Nmatchrate < 0.3, Dmatchrate > 0.3) %>%
-   filter(Population %in% OCNnoSolomons_pops) %>%
-   ggplot(aes(x=Dmatchrate, fill=Population)) +
-      geom_histogram(binwidth=binwidth) +
-      geom_gmm_density(Denisovan_gmm_bestfits %>%
-                          filter(Population %in% OCNnoSolomons_pops),
-                       binwidth=binwidth) +
-      theme_bw() +
-      scale_fill_brewer(palette="Spectral") +
-      facet_wrap(~ Population,
-                 ncol=2) +
-      guides(fill=FALSE) +
-      labs(x="Denisovan match rate",
-      y="Number of tracts")
-ggsave(paste0(output_prefix, '_byAnalysisGroupOCNnoSolomons_Denisovan_GMMfits.pdf'),
-       plot=OCNnoSolomons_den_gmmfits,
-       width=16.0,
-       height=18.0,
-       units="cm",
-       dpi=500)
-#BMM:
-cat("Plotting Oceania (no Solomons or Vanuatu) BMM fits\n")
-OCNnoSolomons_den_bmmfits <- filtered_match_rates %>%
-   filter(Ngood >= 30, Dgood >= 30,
-          Nmatchrate < 0.3, Dmatchrate > 0.3) %>%
-   filter(Population %in% OCNnoSolomons_pops) %>%
-   ggplot(aes(x=Dmatchrate, fill=Population)) +
-      geom_histogram(binwidth=binwidth) +
-      geom_bmm_density(Denisovan_bmm_bestfits %>%
-                          filter(Population %in% OCNnoSolomons_pops),
-                       binwidth=binwidth) +
-      theme_bw() +
-      scale_fill_brewer(palette="Spectral") +
-      facet_wrap(~ Population,
-                 ncol=2) +
-      guides(fill=FALSE) +
-      labs(x="Denisovan match rate",
-      y="Number of tracts")
-ggsave(paste0(output_prefix, '_byAnalysisGroupOCNnoSolomons_Denisovan_BMMfits.pdf'),
-       plot=OCNnoSolomons_den_bmmfits,
-       width=16.0,
-       height=18.0,
-       units="cm",
-       dpi=500)
+##Oceania without Solomons (or Vanuatu):
+#OCNnoSolomons_pops <- c("Ata", "Baining-Kagat",
+#                        "Baining-Mali", "Goroka",
+#                        "Kove", "Lavongai-Mussau",
+#                        "Mamusi", "Mangseng",
+#                        "Melamela", "Nailik-Notsi-Tigak",
+#                        "Nakanai", "Nasioi",
+#                        "Saposa", "Sepik"))
+##GMM:
+#OCNnoSolomons_den_gmmfits <- filtered_match_rates %>%
+#   filter(Ngood >= 30, Dgood >= 30,
+#          Nmatchrate < 0.3, Dmatchrate > 0.3) %>%
+#   filter(Population %in% OCNnoSolomons_pops) %>%
+#   ggplot(aes(x=Dmatchrate, fill=Population)) +
+#      geom_histogram(binwidth=binwidth) +
+#      geom_gmm_density(Denisovan_gmm_bestfits %>%
+#                          filter(Population %in% OCNnoSolomons_pops),
+#                       binwidth=binwidth) +
+#      theme_bw() +
+#      scale_fill_brewer(palette="Spectral") +
+#      facet_wrap(~ Population,
+#                 ncol=2) +
+#      guides(fill=FALSE) +
+#      labs(x="Denisovan match rate",
+#      y="Number of tracts")
+#ggsave(paste0(output_prefix, '_byAnalysisGroupOCNnoSolomons_Denisovan_GMMfits.pdf'),
+#       plot=OCNnoSolomons_den_gmmfits,
+#       width=16.0,
+#       height=18.0,
+#       units="cm",
+#       dpi=500)
+##BMM:
+#OCNnoSolomons_den_bmmfits <- filtered_match_rates %>%
+#   filter(Ngood >= 30, Dgood >= 30,
+#          Nmatchrate < 0.3, Dmatchrate > 0.3) %>%
+#   filter(Population %in% OCNnoSolomons_pops) %>%
+#   ggplot(aes(x=Dmatchrate, fill=Population)) +
+#      geom_histogram(binwidth=binwidth) +
+#      geom_bmm_density(Denisovan_bmm_bestfits %>%
+#                          filter(Population %in% OCNnoSolomons_pops),
+#                       binwidth=binwidth) +
+#      theme_bw() +
+#      scale_fill_brewer(palette="Spectral") +
+#      facet_wrap(~ Population,
+#                 ncol=2) +
+#      guides(fill=FALSE) +
+#      labs(x="Denisovan match rate",
+#      y="Number of tracts")
+#ggsave(paste0(output_prefix, '_byAnalysisGroupOCNnoSolomons_Denisovan_BMMfits.pdf'),
+#       plot=OCNnoSolomons_den_bmmfits,
+#       width=16.0,
+#       height=18.0,
+#       units="cm",
+#       dpi=500)
 
 #Save the inputs and fits:
 cat("Saving inputs and results to Rdata file\n")

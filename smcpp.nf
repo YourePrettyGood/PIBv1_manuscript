@@ -109,7 +109,7 @@ Channel
    .tap { autosomes }
 
 //Set up an optional file channel for the mappability mask for MSMC2:
-params.mappability_mask = ""
+params.mappability_mask = "NOMASK"
 mappability_mask = file(params.mappability_mask)
 
 //Tap any channels necessary for MSMC2 if it's enabled/selected:
@@ -398,8 +398,17 @@ process vcf_to_smc {
    }
    #Determine the number of samples in the input VCF:
    bcftools query -l !{pop}_chr!{chrom}.vcf.gz > !{pop}_samples.tsv
+   n_samples=$(awk 'END{print NR;}' !{pop}_samples.tsv)
+   n_draws=!{params.num_dlineages}
+   #Adjust the number of distinguished lineages considered if there
+   # aren't enough samples:
+   if [[ "${n_samples}" -lt "${n_draws}" ]]; then
+      n_draws=${n_samples}
+      echo "Warning: !{pop} only has ${n_samples} individuals, so cannot draw !{params.num_dlineages} distinguished lineages"
+      echo "Drawing ${n_draws} distinguished lineages instead"
+   fi
    sampleid_max=$(awk 'END{print NR-1;}' !{pop}_samples.tsv)
-   shuf --random-source=<(seed_coreutils_PRNG !{params.prng_seed}) -i 0-${sampleid_max} -n!{params.num_dlineages} | \
+   shuf --random-source=<(seed_coreutils_PRNG !{params.prng_seed}) -i 0-${sampleid_max} -n${n_draws} | \
    while read aid;
       do
       #Since we're working with unphased data, the distinguished lineages must come
@@ -604,7 +613,7 @@ process msmc2_ccr_prep {
    tuple val(qpop), val(tpop), path("${qpop}_${tpop}_chr${chrom}_multihetsep.txt") into msmc2_ccr_inputs
 
    shell:
-   mapmask = mappability_mask.exists() ? "--negative_mask ${mappability_mask}" : ""
+   mapmask = mappability_mask.name != 'NOMASK' ? "--negative_mask ${mappability_mask}" : ""
    '''
    module load !{params.mod_bcftools}
    #Function for seeding PRNGs in utilities like shuf, shred, and sort:

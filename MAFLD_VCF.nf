@@ -21,6 +21,8 @@ params.ld_pruning_params = "50 5 0.5"
 params.vcf_glob = "${projectDir}/input_VCFs/*.vcf.gz"
 //Regex to pull out the chromosome:
 params.vcfchr_regex = ~/_chr(\p{Alnum}+)/
+//Sample ID file for exclusion:
+params.samples_to_exclude = "<(echo)"
 
 //Reference-related parameters for the pipeline:
 params.ref_prefix = "/gpfs/gibbs/pi/tucci/pfr8/refs"
@@ -51,6 +53,8 @@ ref_fai = file(params.ref+'.fai', checkIfExists: true)
 
 //Set up a file channel for the population/group metadata for +fill-tags:
 region_map = file(params.sample_group_map, checkIfExists: true)
+//And a file channel for the sample IDs to exclude:
+excluded_samples = file(params.samples_to_exclude, checkIfExists: true)
 
 //Defaults for cpus, memory, and time for each process:
 //Per-region MAF annotation:
@@ -93,6 +97,7 @@ process perregion_maf {
    tuple val(chrom), path(vcf), path(tbi) from bychrom_vcfs
    path ref
    path ref_fai
+   path excluded_samples
    path region_map
 
    output:
@@ -103,7 +108,7 @@ process perregion_maf {
    '''
    module load !{params.mod_bcftools}
    module load !{params.mod_htslib}
-   bcftools view -i '!{params.minimal_filter_str}' !{vcf} 2> bcftools_view_minimalFilters_chr!{chrom}.stderr | \
+   bcftools view -S^!{excluded_samples} -i '!{params.minimal_filter_str}' !{vcf} 2> bcftools_view_minimalFilters_chr!{chrom}.stderr | \
       bcftools +fill-tags -Oz -o !{params.run_name}_chr!{chrom}_MAFannotated.vcf.gz - -- -t AF,MAF -S !{region_map} 2> bcftools_filltags_AF_MAF_chr!{chrom}.stderr > bcftools_filltags_AF_MAF_chr!{chrom}.stdout
    tabix -f !{params.run_name}_chr!{chrom}_MAFannotated.vcf.gz
    '''
@@ -177,6 +182,7 @@ process plinkmerge {
    maxRetries 1
 
    publishDir path: "${params.output_dir}/logs", mode: 'copy', pattern: '*.std{err,out}'
+   publishDir path: "${params.output_dir}/unpruned_PLINK", mode: 'copy', pattern: '*.{bed,bim,fam,pgen,pvar.zst,psam}'
 
    input:
    path("*") from perchrom_pgen.collect()
@@ -184,8 +190,9 @@ process plinkmerge {
    path ref_fai
 
    output:
-   tuple path("plink_pmergelist_${params.MAF_name}_bSNPs.stderr"), path("plink_pmergelist_${params.MAF_name}_bSNPs.stdout") into plinkmerge_logs
+   tuple path("plink_pmergelist_${params.MAF_name}_bSNPs.stderr"), path("plink_pmergelist_${params.MAF_name}_bSNPs.stdout"), path("plink_pgentobed_${params.MAF_name}_bSNPs.stderr"), path("plink_pgentobed_${params.MAF_name}_bSNPs.stdout") into plinkmerge_logs
    tuple path("${params.run_name}_autosomes_${params.MAF_name}_bSNPs.pgen"), path("${params.run_name}_autosomes_${params.MAF_name}_bSNPs.pvar.zst"), path("${params.run_name}_autosomes_${params.MAF_name}_bSNPs.psam") into merged_pgen
+   tuple path("${params.run_name}_autosomes_${params.MAF_name}_bSNPs.bed"), path("${params.run_name}_autosomes_${params.MAF_name}_bSNPs.bim"), path("${params.run_name}_autosomes_${params.MAF_name}_bSNPs.fam") into merged_bed
 
    shell:
    plink_mem = task.memory.minus(1.GB).toMega()
@@ -195,6 +202,7 @@ process plinkmerge {
       awk '{gsub(".pgen", "");print;}' | \
       sort -k1,1V > autosome_pfile.list
    !{params.plink2_bin} --threads !{task.cpus} --memory !{plink_mem} --pmerge-list autosome_pfile.list pfile-vzs --pmerge-output-vzs --out !{params.run_name}_autosomes_!{params.MAF_name}_bSNPs 2> plink_pmergelist_!{params.MAF_name}_bSNPs.stderr > plink_pmergelist_!{params.MAF_name}_bSNPs.stdout
+   !{params.plink2_bin} --threads !{task.cpus} --memory !{plink_mem} --pfile !{params.run_name}_autosomes_!{params.MAF_name}_bSNPs vzs --make-bed --out !{params.run_name}_autosomes_!{params.MAF_name}_bSNPs 2> plink_pgentobed_!{params.MAF_name}_bSNPs.stderr > plink_pgentobed_!{params.MAF_name}_bSNPs.stdout
    '''
 }
 
