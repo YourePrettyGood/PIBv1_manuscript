@@ -4,8 +4,10 @@
  * Core steps:                                                              *
  *  (Reformat genetic/recombination rate map files for AS2 &&               *
  *  Extraction of target populations + outgroup from main VCF for AS2) ->   *
- *  ArchaicSeeker2 on each target population ->                             *
- *  MultiWaver2.1 on each target population for each archaic origin         */
+ *  ArchaicSeeker2 on each target population |->                            *
+ *  MultiWaver2.1 on each target population for each archaic origin         *
+ *  |-> match rate calculation                                              *
+ *  |-> overlapping genes                                                   */
 
 //Default paths, globs, and regexes:
 //Jointly genotyped VCFs:
@@ -95,6 +97,7 @@ Channel
    .splitCsv(sep: "\t")
    .map { it[0] }
    .tap { as_pops }
+   .tap { as_pops_for_cat }
    .subscribe { println "Added ${it} to as_pops channel" }
 
 //Set up the channels of archaic VCFs and their indices:
@@ -118,8 +121,8 @@ num_autosomes = params.autosomes.tokenize(',').size()
 
 //Set up the file channels for the metadata files and the annotation GFF:
 metadata = file(params.metadata_file, checkIfExists: true)
-//archaic_metadata = file(params.arc_metadata_file, checkIfExists: true)
-//annotation_gff = file(params.annotation_gff, checkIfExists: true)
+archaic_metadata = file(params.arc_metadata_file, checkIfExists: true)
+annotation_gff = file(params.annotation_gff, checkIfExists: true)
 //And a file channel for the sample IDs to exclude:
 excluded_samples = file(params.samples_to_exclude, checkIfExists: true)
 
@@ -186,6 +189,14 @@ params.AS2_timeout = '24h'
 params.MW2_cpus = 1
 params.MW2_mem = 8
 params.MW2_timeout = '24h'
+//Match rates
+params.matchrate_cpus = 1
+params.matchrate_mem = 2
+params.matchrate_timeout = '2h'
+//Gene lists
+params.genes_cpus = 1
+params.genes_mem = 5
+params.genes_timeout = '24h'
 //Combine outputs across targets and chromosomes
 params.catouts_cpus = 1
 params.catouts_mem = 1
@@ -196,12 +207,14 @@ perchrom_vcfs
    .join(perchrom_tbis, by: 0, failOnDuplicate: true, failOnMismatch: true)
    .filter({ params.autosomes.tokenize(',').contains(it[0]) })
    .tap { perchrom_vcfs_OGsubset }
+   .tap { perchrom_vcfs_for_matchrate }
    .set { perchrom_vcfs_subset }
 
 //Do the same for the archaic VCF channel:
 archaic_vcfs
    .join(archaic_tbis, by: 0, failOnDuplicate: true, failOnMismatch: true)
    .filter({ params.autosomes.tokenize(',').contains(it[0]) })
+   .tap { archaic_vcfs_for_matchrate }
    .set { archaic_vcfs_autosomes }
 
 //Retain only the autosomes for the recombination rate maps:
@@ -383,7 +396,7 @@ process AS {
 
    output:
    tuple path("AS2_${pop}.stderr"), path("AS2_${pop}.stdout") into AS_logs
-   tuple val(pop), path("AS2_${pop}.seg"), path("AS2_${pop}.sum") into AS2_outputs
+   tuple val(pop), path("AS2_${pop}.seg"), path("AS2_${pop}.sum") into AS2_outputs,AS2_outputs_for_matchrate,AS2_outputs_for_genes
 
    shell:
    AS2_params = "-a ${params.AS2_intro_proportion} -T ${params.AS2_intro_time} -e ${params.AS2_emission_prob}"
@@ -478,7 +491,93 @@ process MW {
    '''
 }
 
-/*process cat_outs {
+process matchrate {
+   tag "${pop} chr${chrom}"
+
+   cpus params.matchrate_cpus
+   memory { params.matchrate_mem.plus(task.attempt.minus(1).multiply(4))+' GB' }
+   time { task.attempt >= 2 ? '24h' : params.matchrate_timeout }
+   errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
+   maxRetries 1
+
+   input:
+   tuple val(pop), path(seg), val(chrom), path(modernvcf), path(moderntbi), path(arcvcf), path(arctbi) from AS2_outputs_for_matchrate
+                                                                                                               .map({ [it[0], it[1]] })
+                                                                                                               .combine(perchrom_vcfs_for_matchrate
+                                                                                                                           .join(archaic_vcfs_for_matchrate, by: 0, failOnDuplicate: true, failOnMismatch: true))
+   path metadata
+   path excluded_samples
+   path archaic_metadata
+
+   output:
+   path("AS2_${pop}_chr${chrom}_match_rates.tsv.gz") into matchrates
+   path("AS2_${pop}_chr${chrom}_matches.tsv.gz") into matches
+
+   shell:
+   '''
+   module load !{params.mod_bcftools}
+   module load !{params.mod_htslib}
+   #Get the list of sample IDs for this population:
+   !{projectDir}/HumanPopGenScripts/selectSubsamples.awk -v "idcol=!{params.id_colname}" -v "selectcol=!{params.AS_target_colname}" -v "select=!{pop}" !{metadata} | \
+      !{projectDir}/HumanPopGenScripts/excludeSamples.awk !{excluded_samples} - > !{pop}_samples.tsv
+   #Convert AS2 .seg format to something resembling Sprime .score format:
+   bcftools query -S !{pop}_samples.tsv -H -f '%CHROM\t%POS\t%ID\t%REF\t%ALT[\t%GT]\n' !{modernvcf} | \
+      !{projectDir}/HumanPopGenScripts/ArchaicSeeker/segToSprimeScore.awk -v "chrom=!{chrom}" <(tail -n+2 !{seg} | sort -k2,2V -k3,3n -k4,4n -k1,1V | cat <(head -n1 !{seg}) -) - > AS2_!{pop}_chr!{chrom}.score
+   #Extract the list of sites from this .score file:
+   fgrep -v "CHROM" AS2_!{pop}_chr!{chrom}.score | cut -f1,2 | uniq | sort -k1,1V -k2,2n > !{pop}_chr!{chrom}_sites.tsv
+   #Now identify matches to the archaics in the usual Sprime way:
+   bcftools query -T !{pop}_chr!{chrom}_sites.tsv -H -f '%CHROM:%POS[\t%TGT]\n' !{arcvcf} | \
+      !{projectDir}/HumanPopGenScripts/Sprime/archaicMatchSprime.awk -v "spop=!{pop}" -v "gtfmt=query" !{archaic_metadata} - AS2_!{pop}_chr!{chrom}.score | \
+      gzip -9 > AS2_!{pop}_chr!{chrom}_matches.tsv.gz
+   #And summarize each AS2 tract with match rates:
+   gzip -dc AS2_!{pop}_chr!{chrom}_matches.tsv.gz | \
+      sed 's/ASSTATE/SCORE/' | \
+      !{projectDir}/HumanPopGenScripts/Sprime/SprimeArchaicMatchRate.awk | \
+      sed 's/SCORE/ASSTATE/' | \
+      gzip -9 > AS2_!{pop}_chr!{chrom}_match_rates.tsv.gz
+   '''
+}
+
+process genes {
+   tag "${pop}"
+
+   cpus params.genes_cpus
+   memory { params.genes_mem.plus(task.attempt.minus(1).multiply(8))+' GB' }
+   time { task.attempt >= 2 ? '24h' : params.genes_timeout }
+   errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
+   maxRetries 1
+
+   publishDir path: "${params.output_dir}/ArchaicSeeker", mode: 'copy', pattern: '*.tcsv.gz'
+
+   input:
+   tuple val(pop), path(seg) from AS2_outputs_for_genes
+                                     .map({ [it[0], it[1]] })
+   path annotation_gff
+
+   output:
+   tuple path("${pop}_AS2_gene_lists.tcsv.gz"), path("${pop}_AS2_gene_name_lists.tcsv.gz") into gene_lists
+
+   shell:
+   '''
+   module load !{params.mod_bedtools}
+   #Identify genes overlapping AS2 tracts:
+   bedtools intersect \
+      -a <(tail -n+2 !{seg} | sort -k2,2V -k3,3n -k4,4n -k1,1V | cat <(head -n1 !{seg}) - | \
+         !{projectDir}/HumanPopGenScripts/ArchaicSeeker/AS2segToBED.awk -v "pop=!{pop}" | \
+         sort -k1,1 -k2,2n -k3,3n) \
+      -b <(gzip -dc !{annotation_gff} | \
+         awk 'BEGIN{FS="\t";OFS=FS;}/^#/{print;}!/^#/{sub("chr", "", $1); print $0;}') \
+      -wao | \
+      tee >(!{projectDir}/HumanPopGenScripts/Sprime/SprimeTractGeneList.awk -v "trim=1" -v "tag=gene_name" | \
+         sort -k1,1V -k2,2n -k3,3n | \
+         gzip -9 > !{pop}_AS2_gene_name_lists.tcsv.gz) | \
+      !{projectDir}/HumanPopGenScripts/Sprime/SprimeTractGeneList.awk -v "trim=1" -v "tag=ID" | \
+      sort -k1,1V -k2,2n -k3,3n | \
+      gzip -9 > !{pop}_AS2_gene_lists.tcsv.gz
+   '''
+}
+
+process cat_outs {
    cpus params.catouts_cpus
    memory { params.catouts_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
    time { task.attempt >= 2 ? '24h' : params.catouts_timeout }
@@ -488,62 +587,51 @@ process MW {
    publishDir path: "${params.output_dir}/ArchaicSeeker", mode: 'copy', pattern: '*.t{sv,csv}.gz'
 
    input:
-   path matchrates from Sprime_matchrates.collectFile() { [ "matchrate_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
-   path projections from Sprime_project_BEDs.collectFile() { [ "projection_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
-   path tractfreqs from Sprime_tract_freqs_tocat.map({ it[2] }).collectFile() { [ "tractfreq_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
-   path genelists from Sprime_gene_lists.map({ it[1] }).collectFile() { [ "genelist_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
-   path targetpops from sprime_target_pops.collectFile(name: 'Sprime_target_populations.txt', newLine: true, sort: true)
+   path matchrates from matchrates.collectFile() { [ "matchrate_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
+   path matches from matches.collectFile() { [ "match_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
+   path genelists from gene_lists.flatten().collectFile() { [ "genelist_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
+   path targetpops from as_pops_for_cat.collectFile(name: 'AS2_target_populations.txt', newLine: true, sort: true)
    path metadata
    path excluded_samples
 
    output:
-   tuple path("${params.run_name}_perPop_Sprime_autosomal_match_rates.tsv.gz"), path("${params.run_name}_Sprime_perChrom_perIndiv_perPop_tract_lengths.tsv.gz"), path("${params.run_name}_Sprime_allPopPairs_tract_freqs.tsv.gz"), path("${params.run_name}_Sprime_gene_name_lists.tcsv.gz") into catouts_outputs
+   tuple path("${params.run_name}_perPop_AS2_autosomal_match_rates.tsv.gz"), path("${params.run_name}_perPop_AS2_autosomal_matches.tsv.gz"), path("${params.run_name}_AS2_gene_name_lists.tcsv.gz"), path("${params.run_name}_AS2_gene_lists.tcsv.gz") into catouts_outputs
 
    shell:
    '''
    #Symlink the many input files to avoid SLURM SBATCH script size limits:
-   cat matchrate_paths.tsv projection_paths.tsv tractfreq_paths.tsv genelist_paths.tsv | \
+   cat matchrate_paths.tsv match_paths.tsv genelist_paths.tsv | \
       while IFS=$'\t' read -a a;
          do
          ln -s ${a[2]} ${a[1]};
       done
-   #Concatenate the match rate files across populations:
+   #Concatenate the match rate files across populations and chromosomes:
+   autosomes=!{params.autosomes}
    header=1
    while IFS=$'\t' read p;
       do
-      gzip -dc ${p}_autosomes_Sprime_match_rates.tsv.gz | \
-         awk -v "header=${header}" 'BEGIN{FS="\t";OFS=FS;}NR==1&&header{print;}NR>1{print;}'
-      header=0;
-   done < !{targetpops} | \
-      gzip -9 > !{params.run_name}_perPop_Sprime_autosomal_match_rates.tsv.gz
-   unset header
-   #Calculate total per-individual tract length and
-   # concatenate files across populations:
-   header=1
-   while IFS=$'\t' read p;
-      do
-      !{projectDir}/HumanPopGenScripts/selectSubsamples.awk -v "idcol=!{params.id_colname}" -v "selectcol=!{params.AS_target_colname}" -v "select=${p}" !{metadata} | \
-         !{projectDir}/HumanPopGenScripts/excludeSamples.awk !{excluded_samples} - | \
-         !{projectDir}/HumanPopGenScripts/Sprime/SprimeTractBEDtoLengths.awk -v "header=${header}" -v "pop=${p}" - ${p}_Sprime_tracts_perSample.bed
-      header="";
-   done < !{targetpops} | \
-      gzip -9 > !{params.run_name}_Sprime_perChrom_perIndiv_perPop_tract_lengths.tsv.gz
-   unset header
-   #Concatenate tract frequency files and add a header:
-   header=1
-   while IFS=$'\t' read p;
-      do
-      if [[ "${header}" == "1" ]]; then
-         printf "Chromosome\tStart\tEnd\tTractID\tQueryPop\tMedianAF\tMinAF\tMaxAF\n"
-         header=""
-      fi
-      while IFS=$'\t' read q;
+      for c in ${autosomes//,/$IFS};
          do
-         gzip -dc ${p}_Sprime_${q}_tract_freqs.tsv.gz | \
-            sort -k1,1V -k2,2n -k3,3n;
-      done < !{targetpops};
+         gzip -dc AS2_${p}_chr${c}_match_rates.tsv.gz | \
+            awk -v "header=${header}" 'BEGIN{FS="\t";OFS=FS;}NR==1&&header{print;}NR>1{print;}'
+         header=0;
+      done
    done < !{targetpops} | \
-      gzip -9 > !{params.run_name}_Sprime_allPopPairs_tract_freqs.tsv.gz
+      gzip -9 > !{params.run_name}_perPop_AS2_autosomal_match_rates.tsv.gz
+   unset header
+   #Concatenate the match files across populations and chromosomes:
+   header=1
+   while IFS=$'\t' read p;
+      do
+      for c in ${autosomes//,/$IFS};
+         do
+         gzip -dc AS2_${p}_chr${c}_matches.tsv.gz | \
+            awk -v "header=${header}" 'BEGIN{FS="\t";OFS=FS;}NR==1&&header{print;}NR>1{print;}'
+         header=0;
+      done;
+   done < !{targetpops} | \
+      gzip -9 > !{params.run_name}_perPop_AS2_autosomal_matches.tsv.gz
+   unset header
    #Concatenate the gene name lists across populations:
    header=1
    while IFS=$'\t' read p;
@@ -552,10 +640,23 @@ process MW {
          printf "Chromosome\tStart\tEnd\tTractID\tOverlappingGenes\n"
          header=""
       fi
-      gzip -dc ${p}_Sprime_gene_name_lists.tcsv.gz
+      gzip -dc ${p}_AS2_gene_name_lists.tcsv.gz
       header="";
    done < !{targetpops} | \
-      gzip -9 > !{params.run_name}_Sprime_gene_name_lists.tcsv.gz
+      gzip -9 > !{params.run_name}_AS2_gene_name_lists.tcsv.gz
+   unset header
+   #Concatenate the gene ID lists across populations:
+   header=1
+   while IFS=$'\t' read p;
+      do
+      if [[ "${header}" == "1" ]]; then
+         printf "Chromosome\tStart\tEnd\tTractID\tOverlappingGenes\n"
+         header=""
+      fi
+      gzip -dc ${p}_AS2_gene_lists.tcsv.gz
+      header="";
+   done < !{targetpops} | \
+      gzip -9 > !{params.run_name}_AS2_gene_lists.tcsv.gz
    unset header
    '''
-}*/
+}
