@@ -12,6 +12,8 @@ check_package <- function(pkg_name) {
 check_package("SNPRelate")
 check_package("tidyverse")
 check_package("ggrepel")
+check_package("RColorBrewer")
+check_package("viridis")
 
 #Read in arguments:
 plink_prefix <- options[1]
@@ -37,6 +39,7 @@ if (length(options) < 6 || is.na(options[6]) || options[6] == '') {
                      "Central_South_Asia", "East_Asia", "Island_Southeast_Asia", "Oceania")
 } else {
    group_levels <- unlist(strsplit(options[6], ",", fixed=TRUE))
+   group_levels[group_levels == "NA"] <- NA_character_
 }
 if (length(options) < 7 || is.na(options[7]) || options[7] == '') {
    group_labels <- c("America", "Europe", "Africa", "Middle East",
@@ -52,21 +55,54 @@ if (length(options) < 9 || is.na(options[8]) || is.na(options[9]) || options[8] 
    subset_groupnames <- unlist(strsplit(options[9], ",", fixed=TRUE))
    print(paste("Keeping ", subset_colname, subset_groupnames, sep="", collapse="\n"))
 }
+if (length(options) < 11 || is.na(options[10]) || is.na(options[11]) || options[10] == '' || options[11] == '') {
+   use_subgroups <- FALSE
+} else {
+   use_subgroups <- TRUE
+   subgroup_colname <- options[10]
+   subgroup_shapes <- as.integer(unlist(strsplit(options[11], ",", fixed=TRUE)))
+#   print(paste0("Read in list of Subgroup shapes of length ", length(subgroup_shapes), ": ", paste(subgroup_shapes, sep=",", collapse=";")))
+}
 
 #Load the sample group map:
 sample_groups <- read_tsv(sample_group_map,
                           col_types=sample_group_map_layout,
-                          na=c("NA", "")) %>%
-   mutate(Group=factor(.data[[group_colname]],
-                       levels=group_levels,
-                       labels=group_labels))
+                          na=c("NA", ""))
 
 if (make_subset) {
-   keep_ids <- (sample_groups %>%
-      filter(.data[[subset_colname]] %in% subset_groupnames))$SampleID
+   sample_groups <- sample_groups %>%
+      filter(.data[[subset_colname]] %in% subset_groupnames)
+   keep_ids <- sample_groups$SampleID
    print(paste0("Subsetting ", length(keep_ids), " samples from ", length(subset_groupnames), " groups defined by column ", subset_colname))
 } else {
    keep_ids <- sample_groups$SampleID
+}
+
+sample_groups <- sample_groups %>%
+   mutate(Group=factor(.data[[group_colname]],
+                       levels=group_levels,
+                       labels=group_labels,
+                       exclude=NULL))
+print(paste0("After adding Group column (", group_colname, "), sample_groups has ", nrow(sample_groups), " rows and ", ncol(sample_groups), " columns"))
+#print(paste(sample_groups$Group, sep=",", collapse=";"))
+
+if (use_subgroups) {
+   sample_groups <- sample_groups %>%
+      mutate(Subgroup=factor(.data[[subgroup_colname]],
+                             levels=unique(arrange(., Group, .data[[subgroup_colname]])[[subgroup_colname]])))
+   print(paste0("After adding Subgroup column (", subgroup_colname, "), sample_groups has ", nrow(sample_groups), " rows and ", ncol(sample_groups), " columns"))
+#   print(paste(sample_groups$Subgroup, sep=",", collapse=";"))
+   subgroup_colour_indices <- (sample_groups %>%
+      arrange(Group, Subgroup) %>%
+      group_by(Group, Subgroup) %>%
+      summarize(Colour=as.integer(first(Group))))$Colour
+   palette_size <- length(unique(subgroup_colour_indices))
+   if (palette_size <= 8) {
+      subgroup_palette_vec <- rev(brewer.pal(palette_size, "Set2"))
+   } else  {
+      subgroup_palette_vec <- viridis_pal(option="turbo", end=0.9)(palette_size)
+   }
+   subgroup_colours <- subgroup_palette_vec[subgroup_colour_indices]
 }
 
 if (!file.exists(paste0(output_prefix, ".gds"))) {
@@ -163,7 +199,7 @@ pca_screeplot <- function(pve) {
          ylim(0, NA)
 }
 
-pca_biplot <- function(loadings, pve, PCs, colour, label=NULL, palette,
+pca_biplot <- function(loadings, pve, PCs, colour, shape=NULL, label=NULL, palette, shape_palette=NULL, shape_colours=NULL,
                        title, pointsize=1, labelsize=1, labellinewidth=0.5) {
    pve_precision <- 3
    pc_one <- paste0("PC", PCs[1])
@@ -176,17 +212,17 @@ pca_biplot <- function(loadings, pve, PCs, colour, label=NULL, palette,
       pivot_wider(names_from="PC",
                   names_prefix="PC",
                   values_from="Loading") %>%
-      {
-         if (!is.null(label)) {
-            ggplot(data=., aes_string(x=pc_one, y=pc_two, colour=colour, label=label))
-         } else {
-            ggplot(data=., aes_string(x=pc_one, y=pc_two, colour=colour))
-         }
-      } +
-         geom_point(size=pointsize, alpha=0.7) +
+      ggplot(data=., aes_string(x=pc_one, y=pc_two, colour=colour)) +
+         {
+            if (!is.null(shape)) {
+               geom_point(aes_string(shape=shape), size=pointsize, alpha=0.5)
+            } else {
+               geom_point(size=pointsize, alpha=0.5)
+            }
+         } +
          {
             if (!is.null(label)) {
-               geom_text_repel(size=labelsize, segment.size=labellinewidth)
+               geom_text_repel(aes_string(label=label), size=labelsize, segment.size=labellinewidth)
             }
          } +
          theme_bw() +
@@ -194,26 +230,45 @@ pca_biplot <- function(loadings, pve, PCs, colour, label=NULL, palette,
             if (length(palette) > 1) {
                scale_colour_manual(values=palette)
             } else if (length(palette) == 1) {
-               scale_colour_brewer(palette=palette)
+               scale_colour_brewer(palette=palette, direction=-1)
             } else {
                if (n_groups <= 8) {
-                  scale_colour_brewer(palette="Set2")
-               } else if (n_groups <= 12) {
-                  scale_colour_brewer(palette="Paired")
-               } else if (n_groups <= 13) {
-                  scale_colour_manual(values=c("black", "grey70", "deeppink1", "brown",
-                                               "darkred", "orange", "tomato", "blue",
-                                               "purple", "deepskyblue", "cornflowerblue", "darkblue",
-                                               "cyan"))
+                  scale_colour_brewer(palette="Set2", direction=-1)
+#               } else if (n_groups <= 12) {
+#                  scale_colour_brewer(palette="Paired", direction=-1)
+#               } else if (n_groups <= 13) {
+#                  scale_colour_manual(values=c("black", "grey70", "deeppink1", "brown",
+#                                               "darkred", "orange", "tomato", "blue",
+#                                               "purple", "deepskyblue", "cornflowerblue", "darkblue",
+#                                               "cyan"))
                } else {
-                  scale_colour_discrete()
+                  scale_colour_viridis_d(option="turbo", end=0.9)
+#                  scale_colour_discrete()
                }
+            }
+         } +
+         {
+            if (!is.null(shape_palette)) {
+               scale_shape_manual(values=shape_palette)
             }
          } +
          labs(x=paste0(pc_one, " (", pc_one_pve, "%)"),
               y=paste0(pc_two, " (", pc_two_pve, "%)"),
               title=title,
-              subtitle=paste0(pc_one, " vs. ", pc_two))
+              subtitle=paste0(pc_one, " vs. ", pc_two)) +
+         guides(colour=guide_legend(direction="vertical",
+                                    ncol=2,
+                                    keywidth=0.7,
+                                    keyheight=0.7),
+                shape=guide_legend(direction="vertical",
+                                   ncol=3,
+                                   byrow=TRUE,
+                                   override.aes=list(colour=shape_colours),
+                                   title.theme=element_text(size=7),
+                                   label.theme=element_text(size=6),
+                                   keywidth=0.5,
+                                   keyheight=0.5)) +
+         theme(legend.spacing.y=unit(0, "cm"))
 }
 
 #Generate the scree plot:
@@ -226,7 +281,16 @@ ggsave(paste0(output_prefix, "_PCA_screeplot.pdf"),
        dpi=500)
 
 #Generate the PCA biplots:
-biplot_1v2 <- pca_biplot(loadings=pca_df, pve=pve_df, PCs=c(1, 2), colour="Group", label=NULL, palette=NULL, title="")
+biplot_1v2 <- pca_biplot(loadings=pca_df,
+                         pve=pve_df,
+                         PCs=c(1, 2),
+                         colour="Group",
+                         shape=ifelse(use_subgroups, "Subgroup", NULL),
+                         label=NULL,
+                         palette=NULL,
+                         shape_palette=if(use_subgroups) subgroup_shapes else NULL,
+                         shape_colours=if(use_subgroups) subgroup_colours else NULL,
+                         title="")
 ggsave(paste0(output_prefix, "_PCA_PC1vs2_by", group_colname, ".pdf"),
        plot=biplot_1v2,
        width=16.0,
@@ -234,7 +298,16 @@ ggsave(paste0(output_prefix, "_PCA_PC1vs2_by", group_colname, ".pdf"),
        units="cm",
        dpi=500)
 
-biplot_3v4 <- pca_biplot(loadings=pca_df, pve=pve_df, PCs=c(3, 4), colour="Group", label=NULL, palette=NULL, title="")
+biplot_3v4 <- pca_biplot(loadings=pca_df,
+                         pve=pve_df,
+                         PCs=c(3, 4),
+                         colour="Group",
+                         shape=ifelse(use_subgroups, "Subgroup", NULL),
+                         label=NULL,
+                         palette=NULL,
+                         shape_palette=if(use_subgroups) subgroup_shapes else NULL,
+                         shape_colours=if(use_subgroups) subgroup_colours else NULL,
+                         title="")
 ggsave(paste0(output_prefix, "_PCA_PC3vs4_by", group_colname, ".pdf"),
        plot=biplot_3v4,
        width=16.0,
@@ -242,7 +315,16 @@ ggsave(paste0(output_prefix, "_PCA_PC3vs4_by", group_colname, ".pdf"),
        units="cm",
        dpi=500)
 
-biplot_5v6 <- pca_biplot(loadings=pca_df, pve=pve_df, PCs=c(5, 6), colour="Group", label=NULL, palette=NULL, title="")
+biplot_5v6 <- pca_biplot(loadings=pca_df,
+                         pve=pve_df,
+                         PCs=c(5, 6),
+                         colour="Group",
+                         shape=ifelse(use_subgroups, "Subgroup", NULL),
+                         label=NULL,
+                         palette=NULL,
+                         shape_palette=if(use_subgroups) subgroup_shapes else NULL,
+                         shape_colours=if(use_subgroups) subgroup_colours else NULL,
+                         title="")
 ggsave(paste0(output_prefix, "_PCA_PC5vs6_by", group_colname, ".pdf"),
        plot=biplot_5v6,
        width=16.0,

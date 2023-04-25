@@ -60,19 +60,19 @@ Channel
 //PLINK subsetting step:
 params.subset_cpus = 4
 params.subset_mem = 3
-params.subset_timeout = '6h'
+params.subset_timeout = '1h'
 //ADMIXPIPE ADMIXTURE step:
 params.admixture_cpus = 1
 params.admixture_mem = 16
 params.admixture_timeout = '24h'
 //Zipping of Q files for CLUMPAK:
 params.zip_q_cpus = 1
-params.zip_q_mem = 4
-params.zip_q_timeout = '12h'
+params.zip_q_mem = 1
+params.zip_q_timeout = '1h'
 //CLUMPAK:
 params.clumpak_cpus = 1
-params.clumpak_mem = 16
-params.clumpak_timeout = '24h'
+params.clumpak_mem = 2
+params.clumpak_timeout = '3h'
 
 process subset {
    cpus params.subset_cpus
@@ -115,7 +115,7 @@ process admixture {
 
    cpus params.admixture_cpus
    memory { params.admixture_mem.plus(task.attempt.minus(1).multiply(32))+' GB' }
-   time { task.attempt == 2 ? '48h' : params.admixture_timeout }
+   time { task.attempt >= 2 ? '96h' : params.admixture_timeout }
    errorStrategy { task.exitStatus in ([1]+(134..140).collect()) ? 'retry' : 'terminate' }
    maxRetries 1
 
@@ -126,12 +126,6 @@ process admixture {
    tuple path(plink_bed), path(plink_bim), path(plink_fam), val(K), val(replicate), val(prng_seed) from plink_subset
       .combine(Ks)
       .combine(replicates.merge(admixture_seeds))
-/*   val seeds from admixture_seeds
-   path plink_bed
-   path plink_bim
-   path plink_fam
-   each K from Ks
-   each replicate from replicates*/
 
    output:
    tuple path("${params.plink_prefix}_admixture_K${K}_r${replicate}.stderr"), path("${params.plink_prefix}_admixture_K${K}_r${replicate}.stdout") into admixture_logs
@@ -140,7 +134,6 @@ process admixture {
    path("${params.plink_prefix}_admixture_K${K}_r${replicate}.stdout") into admixture_CV
 
    shell:
-//   prng_seed = seeds[replicate.minus(1)]
    plink_prefix = plink_bed.getBaseName()
    '''
    module load !{params.mod_admixture}
@@ -153,7 +146,7 @@ process admixture {
 process zip_Q {
    cpus params.zip_q_cpus
    memory { params.zip_q_mem.plus(task.attempt.minus(1).multiply(1))+' GB' }
-   time { task.attempt == 2 ? '12h' : params.zip_q_timeout }
+   time { task.attempt >= 2 ? '12h' : params.zip_q_timeout }
    errorStrategy { task.exitStatus in ([1]..(134..140).collect()) ? 'retry' : 'terminate' }
    maxRetries 1
 
