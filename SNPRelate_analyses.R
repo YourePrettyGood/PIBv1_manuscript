@@ -254,12 +254,12 @@ pca_biplot <- function(loadings, pve, PCs, colour, shape=NULL, label=NULL, palet
          } +
          labs(x=paste0(pc_one, " (", pc_one_pve, "%)"),
               y=paste0(pc_two, " (", pc_two_pve, "%)"),
-              title=title,
-              subtitle=paste0(pc_one, " vs. ", pc_two)) +
+              title=title) +
          guides(colour=guide_legend(direction="vertical",
                                     ncol=2,
                                     keywidth=0.7,
-                                    keyheight=0.7),
+                                    keyheight=0.7,
+                                    title=""),
                 shape=guide_legend(direction="vertical",
                                    ncol=3,
                                    byrow=TRUE,
@@ -267,13 +267,20 @@ pca_biplot <- function(loadings, pve, PCs, colour, shape=NULL, label=NULL, palet
                                    title.theme=element_text(size=7),
                                    label.theme=element_text(size=6),
                                    keywidth=0.5,
-                                   keyheight=0.5)) +
+                                   keyheight=0.5,
+                                   title="")) +
          theme(legend.spacing.y=unit(0, "cm"))
 }
 
 #Generate the scree plot:
 screeplot <- pca_screeplot(pve_df)
-ggsave(paste0(output_prefix, "_PCA_screeplot.pdf"),
+ggsave(paste0(output_prefix, "_PCA_screeplot_", format(Sys.Date(), format="%Y%m%d"), ".pdf"),
+       plot=screeplot,
+       width=16.0,
+       height=12.0,
+       units="cm",
+       dpi=500)
+ggsave(paste0(output_prefix, "_PCA_screeplot_", format(Sys.Date(), format="%Y%m%d"), ".ps"),
        plot=screeplot,
        width=16.0,
        height=12.0,
@@ -291,7 +298,13 @@ biplot_1v2 <- pca_biplot(loadings=pca_df,
                          shape_palette=if(use_subgroups) subgroup_shapes else NULL,
                          shape_colours=if(use_subgroups) subgroup_colours else NULL,
                          title="")
-ggsave(paste0(output_prefix, "_PCA_PC1vs2_by", group_colname, ".pdf"),
+ggsave(paste0(output_prefix, "_PCA_PC1vs2_by", group_colname, "_", format(Sys.Date(), format="%Y%m%d"), ".pdf"),
+       plot=biplot_1v2,
+       width=16.0,
+       height=12.0,
+       units="cm",
+       dpi=500)
+ggsave(paste0(output_prefix, "_PCA_PC1vs2_by", group_colname, "_", format(Sys.Date(), format="%Y%m%d"), ".ps"),
        plot=biplot_1v2,
        width=16.0,
        height=12.0,
@@ -308,7 +321,13 @@ biplot_3v4 <- pca_biplot(loadings=pca_df,
                          shape_palette=if(use_subgroups) subgroup_shapes else NULL,
                          shape_colours=if(use_subgroups) subgroup_colours else NULL,
                          title="")
-ggsave(paste0(output_prefix, "_PCA_PC3vs4_by", group_colname, ".pdf"),
+ggsave(paste0(output_prefix, "_PCA_PC3vs4_by", group_colname, "_", format(Sys.Date(), format="%Y%m%d"), ".pdf"),
+       plot=biplot_3v4,
+       width=16.0,
+       height=12.0,
+       units="cm",
+       dpi=500)
+ggsave(paste0(output_prefix, "_PCA_PC3vs4_by", group_colname, "_", format(Sys.Date(), format="%Y%m%d"), ".ps"),
        plot=biplot_3v4,
        width=16.0,
        height=12.0,
@@ -325,7 +344,13 @@ biplot_5v6 <- pca_biplot(loadings=pca_df,
                          shape_palette=if(use_subgroups) subgroup_shapes else NULL,
                          shape_colours=if(use_subgroups) subgroup_colours else NULL,
                          title="")
-ggsave(paste0(output_prefix, "_PCA_PC5vs6_by", group_colname, ".pdf"),
+ggsave(paste0(output_prefix, "_PCA_PC5vs6_by", group_colname, "_", format(Sys.Date(), format="%Y%m%d"), ".pdf"),
+       plot=biplot_5v6,
+       width=16.0,
+       height=12.0,
+       units="cm",
+       dpi=500)
+ggsave(paste0(output_prefix, "_PCA_PC5vs6_by", group_colname, "_", format(Sys.Date(), format="%Y%m%d"), ".ps"),
        plot=biplot_5v6,
        width=16.0,
        height=12.0,
