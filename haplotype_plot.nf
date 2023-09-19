@@ -645,11 +645,11 @@ workflow {
 
    //Construct the site-presence matrix:
    final_score = target_regions
-      .map({ [ it[0], (it[3] =~ /^([0-9A-Za-z-]+)_(\p{Alnum}+)_([0-9]+)$/)[0][1], it[1] ] })
+      .map({ [ it[0], (it[3] =~ /^([0-9A-Za-z-,]+)_(\p{Alnum}+)_([0-9]+)$/)[0][1], it[1] ] })
       .combine(final_sprime_scores, by: [0,1])
       .map({ [ it[2], it[3] ] })
    corehap_score = target_regions
-      .map({ [ (it[4] =~ /^([0-9A-Za-z-]+)_(\p{Alnum}+)_([0-9A-Za-z.]+)$/)[0][1], it[1] ] })
+      .map({ [ (it[4] =~ /^([0-9A-Za-z-,]+)_(\p{Alnum}+)_([0-9A-Za-z.]+)$/)[0][1], it[1] ] })
       .combine(corehap_matches, by: 0)
       .map({ [ it[1], it[2] ] })
    pilot_score = target_regions
