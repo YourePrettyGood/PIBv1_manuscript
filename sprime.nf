@@ -136,23 +136,31 @@ params.catouts_cpus = 1
 params.catouts_mem = 1
 params.catouts_timeout = '2h'
 
+//Detection mechanism for "chr" prefixes of autosomes:
+has_chr_prefix = params.autosomes.count('chr') > 0
+autosome_list = params.autosomes
+autosome_num_list = has_chr_prefix ? params.autosomes.replaceAll('chr', '') : autosome_list
+Map autosome_map = [params.autosomes.replaceAll('chr', '').tokenize(','), params.autosomes.tokenize(',')]
+   .transpose()
+   .collectEntries()
+
 //Preprocess the per-chromosome VCF channel to include the indices:
 perchrom_vcfs
    .join(perchrom_tbis, by: 0, failOnDuplicate: true, failOnMismatch: true)
-   .filter({ params.autosomes.tokenize(',').contains(it[0]) })
+   .filter({ autosome_num_list.tokenize(',').contains(it[0]) })
    .set { perchrom_vcfs_subset }
 
 //Do the same for the archaic VCF channel:
 archaic_vcfs
    .join(archaic_tbis, by: 0, failOnDuplicate: true, failOnMismatch: true)
-   .filter({ params.autosomes.tokenize(',').contains(it[0]) })
+   .filter({ autosome_num_list.tokenize(',').contains(it[0]) })
    .flatMap({ [it[1], it[2]] })
    .collect()
    .set { archaic_vcfs_autosomes }
 
 //Retain only the autosomes for the recombination rate maps:
 recmaps
-   .filter({ params.autosomes.tokenize(',').contains(it[0]) })
+   .filter({ autosome_num_list.tokenize(',').contains(it[0]) })
    .set { recmaps_autosomes }
 
 process sprime_vcf_subset {
@@ -220,7 +228,7 @@ process concat_input_vcf {
    '''
    module load !{params.mod_bcftools}
    module load !{params.mod_htslib}
-   bcftools concat --threads !{task.cpus} -Oz -o !{pop}_nomissinggenos.vcf.gz !{pop}_chr{!{params.autosomes}}_nomissinggenos.vcf.gz 2> bcftools_concat_Sprime_!{pop}.stderr > bcftools_concat_Sprime_!{pop}.stdout
+   bcftools concat --threads !{task.cpus} -Oz -o !{pop}_nomissinggenos.vcf.gz !{pop}_chr{!{autosome_num_list}}_nomissinggenos.vcf.gz 2> bcftools_concat_Sprime_!{pop}.stderr > bcftools_concat_Sprime_!{pop}.stdout
    tabix -f !{pop}_nomissinggenos.vcf.gz
    '''
 }
@@ -244,7 +252,6 @@ process sprime {
          .groupTuple(by: 0, size: num_autosomes)
          .map({ [it[0], it[1].take(1)] }), by: 0, failOnDuplicate: true, failOnMismatch: true)
       .combine(recmaps_autosomes)
-//   each tuple val(chrom), path(recmap) from recmaps.filter({ params.autosomes.tokenize(',').contains(it[0]) })
 
    output:
    tuple path("Sprime_${pop}_chr${chrom}.stderr"), path("Sprime_${pop}_chr${chrom}.stdout"), path("${pop}_chr${chrom}_Sprime.log") into Sprime_logs
@@ -252,9 +259,10 @@ process sprime {
 
    shell:
    sprime_retry_mem = params.sprime_mem.plus(task.attempt.minus(1).multiply(16))
+   chrid = autosome_map[chrom]
    '''
    module load !{params.mod_Sprime}
-   java -Xmx!{sprime_retry_mem}g -jar ${SPRIME} gt=!{pop}_nomissinggenos.vcf.gz outgroup=!{pop}_outgroup_samples.tsv map=!{recmap} chrom=!{chrom} out=!{pop}_chr!{chrom}_Sprime 2> Sprime_!{pop}_chr!{chrom}.stderr > Sprime_!{pop}_chr!{chrom}.stdout
+   java -Xmx!{sprime_retry_mem}g -jar ${SPRIME} gt=!{pop}_nomissinggenos.vcf.gz outgroup=!{pop}_outgroup_samples.tsv map=!{recmap} chrom=!{chrid} out=!{pop}_chr!{chrom}_Sprime 2> Sprime_!{pop}_chr!{chrom}.stderr > Sprime_!{pop}_chr!{chrom}.stdout
    '''
 }
 
@@ -284,7 +292,7 @@ process sprime_matchrate {
    module load !{params.mod_bcftools}
    module load !{params.mod_bedtools}
    #Identify Sprime alleles that match or mismatch the archaics:
-   for chr in {!{params.autosomes}};
+   for chr in {!{autosome_num_list}};
       do
       #Establish the set of Sprime sites for this population and chromosome:
       fgrep -v "CHROM" !{pop}_chr${chr}_Sprime.score | \
@@ -330,10 +338,15 @@ process sprime_project {
    '''
    module load !{params.mod_bcftools}
    #Project Sprime alleles onto each individual to identify tracts from genotypes:
-   for chr in {!{params.autosomes}};
+   for chr in {!{autosome_list}};
       do
-      bcftools query -f '%CHROM:%POS[\t%GT]\n' -r ${chr} -H -S ^!{pop}_outgroup_samples.tsv !{pop}_chr${chr}_nomissinggenos.vcf.gz | \
-         !{projectDir}/HumanPopGenScripts/Sprime/SprimePerSampleTracts.awk !{pop}_chr${chr}_Sprime.score - | \
+      if [[ "!{has_chr_prefix}" == "true" ]]; then
+         chrnum=${chr#chr};
+      else
+         chrnum=${chr};
+      fi;
+      bcftools query -f '%CHROM:%POS[\t%GT]\n' -r ${chr} -H -S ^!{pop}_outgroup_samples.tsv !{pop}_chr${chrnum}_nomissinggenos.vcf.gz | \
+         !{projectDir}/HumanPopGenScripts/Sprime/SprimePerSampleTracts.awk !{pop}_chr${chrnum}_Sprime.score - | \
          !{projectDir}/HumanPopGenScripts/Sprime/SprimeTractBED.awk | \
          sort -k1,1V -k2,2n -k3,3n
    done > !{pop}_Sprime_tracts_perSample.bed
@@ -360,7 +373,6 @@ process sprime_tractfreqs {
          .map({ [it[0], it[1].take(1)] })
          .join(Sprime_perchrom_vcfs_tractfreqs
       .groupTuple(by: 0, size: num_autosomes), by: 0, failOnDuplicate: true, failOnMismatch: true))
-//   each tuple val(qpop), path("*") in Sprime_pop_samples.join(Sprime_perchrom_vcfs_tractfreqs.groupTuple(by: 0, size: num_autosomes), by: 0, failOnDuplicate: true, failOnMismatch: true)
 
    output:
    tuple val(pop), val(qpop), path("${pop}_Sprime_${qpop}_tract_freqs.tsv.gz") into Sprime_tract_freqs,Sprime_tract_freqs_tocat
@@ -369,10 +381,15 @@ process sprime_tractfreqs {
    '''
    module load !{params.mod_bcftools}
    #Calculate the median Sprime allele frequency for each tract:
-   for chr in {!{params.autosomes}};
+   for chr in {!{autosome_list}};
       do
-      bcftools query -f '%CHROM:%POS[\t%GT]\n' -r ${chr} -H -S !{qpop}_samples.tsv !{qpop}_chr${chr}_nomissinggenos.vcf.gz | \
-         !{projectDir}/HumanPopGenScripts/Sprime/SprimeArchaicAF.awk -v "spop=!{pop}" -v "pop=!{qpop}" -v "all=1" !{pop}_chr${chr}_Sprime.score - | \
+      if [[ "!{has_chr_prefix}" == "true" ]]; then
+         chrnum=${chr#chr};
+      else
+         chrnum=${chr};
+      fi;
+      bcftools query -f '%CHROM:%POS[\t%GT]\n' -r ${chr} -H -S !{qpop}_samples.tsv !{qpop}_chr${chrnum}_nomissinggenos.vcf.gz | \
+         !{projectDir}/HumanPopGenScripts/Sprime/SprimeArchaicAF.awk -v "spop=!{pop}" -v "pop=!{qpop}" -v "all=1" !{pop}_chr${chrnum}_Sprime.score - | \
          !{projectDir}/HumanPopGenScripts/Sprime/SprimeTractMedianAF.awk
    done | \
       gzip -9 > !{pop}_Sprime_!{qpop}_tract_freqs.tsv.gz
@@ -407,7 +424,7 @@ process sprime_genes {
          awk 'BEGIN{FS="\t";OFS=FS;}{print $1, $2, $3, "TractID="$4";AAF="$6, ".", "+";}' | \
          sort -k1,1 -k2,2n -k3,3n) \
       -b <(gzip -dc !{annotation_gff} | \
-         awk 'BEGIN{FS="\t";OFS=FS;}/^#/{print;}!/^#/{sub("chr", "", $1); print $0;}') \
+         awk -v "keepchr=!{has_chr_prefix}" 'BEGIN{FS="\t";OFS=FS;}/^#/{print;}!/^#/{if (keepchr != "true") {sub("chr", "", $1);}; print $0;}') \
       -wao | \
       tee >(!{projectDir}/HumanPopGenScripts/Sprime/SprimeTractGeneList.awk -v "trim=1" -v "tag=gene_name" | \
          sort -k1,1V -k2,2n -k3,3n | \
