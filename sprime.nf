@@ -107,34 +107,50 @@ params.sprime_target_colname = "AnalysisGroup"
 params.sprimesubset_cpus = 1
 params.sprimesubset_mem = 4
 params.sprimesubset_timeout = '24h'
+params.sprimesubset_queue = 'day'
+params.sprimesubset_long_queue = 'day'
 //VCF concatenating for Sprime
 params.concatvcf_cpus = 1
 params.concatvcf_mem = 4
 params.concatvcf_timeout = '24h'
+params.concatvcf_queue = 'day'
+params.concatvcf_long_queue = 'week'
 //Sprime
 params.sprime_cpus = 1
 params.sprime_mem = 8
 params.sprime_timeout = '24h'
+params.sprime_queue = 'day'
+params.sprime_long_queue = 'day'
 //Sprime match rates
 params.sprimematch_cpus = 1
 params.sprimematch_mem = 4
 params.sprimematch_timeout = '24h'
+params.sprimematch_queue = 'day'
+params.sprimematch_long_queue = 'day'
 //Sprime projection
 params.sprimeproject_cpus = 1
 params.sprimeproject_mem = 1
 params.sprimeproject_timeout = '24h'
+params.sprimeproject_queue = 'day'
+params.sprimeproject_long_queue = 'day'
 //Sprime tract frequencies
 params.sprimetf_cpus = 1
 params.sprimetf_mem = 1
 params.sprimetf_timeout = '24h'
+params.sprimetf_queue = 'day'
+params.sprimetf_long_queue = 'week'
 //Sprime tract gene lists
 params.sprimegenes_cpus = 1
 params.sprimegenes_mem = 5
 params.sprimegenes_timeout = '24h'
+params.sprimegenes_queue = 'day'
+params.sprimegenes_long_queue = 'day'
 //Combine outputs across targets and chromosomes
 params.catouts_cpus = 1
 params.catouts_mem = 1
 params.catouts_timeout = '2h'
+params.catouts_queue = 'day'
+params.catouts_long_queue = 'day'
 
 //Detection mechanism for "chr" prefixes of autosomes:
 has_chr_prefix = params.autosomes.count('chr') > 0
@@ -169,6 +185,7 @@ process sprime_vcf_subset {
    cpus params.sprimesubset_cpus
    memory { params.sprimesubset_mem.plus(task.attempt.minus(1).multiply(8))+' GB' }
    time { task.attempt >= 2 ? '24h' : params.sprimesubset_timeout }
+   queue { task.attempt >= 2 ? params.sprimesubset_long_queue : params.sprimesubset_queue }
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
 
@@ -212,6 +229,7 @@ process concat_input_vcf {
    cpus params.concatvcf_cpus
    memory { params.concatvcf_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
    time { task.attempt >= 2 ? '48h' : params.concatvcf_timeout }
+   queue { task.attempt >= 2 ? params.concatvcf_long_queue : params.concatvcf_queue }
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
 
@@ -239,6 +257,7 @@ process sprime {
    cpus params.sprime_cpus
    memory { params.sprime_mem.plus(1).plus(task.attempt.minus(1).multiply(16))+' GB' }
    time { task.attempt >= 2 ? '24h' : params.sprime_timeout }
+   queue { task.attempt >= 2 ? params.sprime_long_queue : params.sprime_queue }
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
 
@@ -272,6 +291,7 @@ process sprime_matchrate {
    cpus params.sprimematch_cpus
    memory { params.sprimematch_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
    time { task.attempt >= 2 ? '24h' : params.sprimematch_timeout }
+   queue { task.attempt >= 2 ? params.sprimematch_long_queue : params.sprimematch_queue }
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
 
@@ -316,6 +336,7 @@ process sprime_project {
    cpus params.sprimeproject_cpus
    memory { params.sprimeproject_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
    time { task.attempt >= 2 ? '24h' : params.sprimeproject_timeout }
+   queue { task.attempt >= 2 ? params.sprimeproject_long_queue : params.sprimeproject_queue }
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
 
@@ -358,7 +379,8 @@ process sprime_tractfreqs {
 
    cpus params.sprimetf_cpus
    memory { params.sprimetf_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
-   time { task.attempt >= 2 ? '24h' : params.sprimetf_timeout }
+   time { task.attempt >= 2 ? '48h' : params.sprimetf_timeout }
+   queue { task.attempt >= 2 ? params.sprimetf_long_queue : params.sprimetf_queue }
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
 
@@ -402,6 +424,7 @@ process sprime_genes {
    cpus params.sprimegenes_cpus
    memory { params.sprimegenes_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
    time { task.attempt >= 2 ? '24h' : params.sprimegenes_timeout }
+   queue { task.attempt >= 2 ? params.sprimegenes_long_queue : params.sprimegenes_queue }
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
 
@@ -439,6 +462,7 @@ process cat_outs {
    cpus params.catouts_cpus
    memory { params.catouts_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
    time { task.attempt >= 2 ? '24h' : params.catouts_timeout }
+   queue { task.attempt >= 2 ? params.catouts_long_queue : params.catouts_queue }
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
 
