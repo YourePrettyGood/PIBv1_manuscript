@@ -5,6 +5,8 @@
  *  Zip outputs per K, then zip the zips together ->                     *
  *  Run CLUMPAK in a very particular way                                 */
 
+nextflow.enable.dsl = 2
+
 //Default parameters:
 params.minK = 2
 params.maxK = 12
@@ -20,59 +22,28 @@ params.clumpak_zip = ""
 //Path within the zip to the CLUMPAK Perl files:
 params.clumpak_path = "26_03_2015_CLUMPAK/CLUMPAK"
 
-//Set up file channels for the PLINK inputs:
-plink_bed = file(params.plink_prefix+".bed", checkIfExists: true)
-plink_bim = file(params.plink_prefix+".bim", checkIfExists: true)
-plink_fam = file(params.plink_prefix+".fam", checkIfExists: true)
-
-//Set up a file channel for the population map:
-pop_map = file(params.pop_map, checkIfExists: true)
-
-//Set up a file channel for the samples to exclude:
-params.samples_to_exclude = "<(echo)"
-excludesamples = file(params.samples_to_exclude, checkIfExists: true)
-
-//Set up a file channel for the CLUMPAK install zip:
-CLUMPAK = file(params.clumpak_zip, checkIfExists: true)
-
-//Set up an optional file channel for distruct's drawing parameters:
-drawparams = file(params.drawparams)
-
-//Set up value channels for the Ks and replicates:
-minK = params.minK
-maxK = params.maxK
-Channel
-   .of(minK..maxK)
-   .tap { Ks }
-   .subscribe { println "Adding K=${it} to Ks channel" }
-Channel
-   .of(1..params.replicates)
-   .tap { replicates }
-   .subscribe { println "Adding replicate ${it} to replicates channel" }
-//Set up the list of PRNG seeds:
-Random prng = new Random(params.prng_seed)
-Channel
-   .fromList(prng.ints(params.replicates, 0, 2147483647).toArray().toList())
-   .tap { admixture_seeds }
-   .subscribe { println "Adding PRNG seed ${it} to admixture_seeds channel" }
-
 //Defaults for cpus, memory, and time for each process:
 //PLINK subsetting step:
 params.subset_cpus = 4
 params.subset_mem = 3
 params.subset_timeout = '1h'
+params.subset_queue = 'day'
 //ADMIXPIPE ADMIXTURE step:
 params.admixture_cpus = 1
 params.admixture_mem = 16
 params.admixture_timeout = '24h'
+params.admixture_queue = 'day'
+params.admixture_long_queue = 'week'
 //Zipping of Q files for CLUMPAK:
 params.zip_q_cpus = 1
 params.zip_q_mem = 1
 params.zip_q_timeout = '1h'
+params.zip_q_queue = 'day'
 //CLUMPAK:
 params.clumpak_cpus = 1
 params.clumpak_mem = 2
 params.clumpak_timeout = '3h'
+params.clumpak_queue = 'day'
 
 process subset {
    cpus params.subset_cpus
@@ -92,10 +63,10 @@ process subset {
    path excludesamples
 
    output:
-   tuple path("${params.plink_prefix}_plink_subset.stderr"), path("${params.plink_prefix}_plink_subset.stdout") into subset_logs
-   tuple path("${params.plink_prefix}_noexcluded.bed"), path("${params.plink_prefix}_noexcluded.bim"), path("${params.plink_prefix}_noexcluded.fam") into plink_subset
-   path("${params.plink_prefix}_noexcluded.fam") into fam_for_rearrange
-   path("admixture_pop_map.txt") into filtered_pop_map_Qzip,filtered_pop_map_clumpak
+   tuple path("${params.plink_prefix}_plink_subset.stderr"), path("${params.plink_prefix}_plink_subset.stdout"), emit: logs
+   tuple path("${params.plink_prefix}_noexcluded.bed"), path("${params.plink_prefix}_noexcluded.bim"), path("${params.plink_prefix}_noexcluded.fam"), emit: plink
+   path("${params.plink_prefix}_noexcluded.fam"), emit: fam
+   path("admixture_pop_map.txt"), emit: pop_map
 
    shell:
    plink_mem = task.memory.minus(1.GB).toMega()
@@ -125,15 +96,13 @@ process admixture {
    publishDir path: "${params.output_dir}/ADMIXTURE", mode: 'copy', pattern: '*.{P,Q}'
 
    input:
-   tuple path(plink_bed), path(plink_bim), path(plink_fam), val(K), val(replicate), val(prng_seed) from plink_subset
-      .combine(Ks)
-      .combine(replicates.merge(admixture_seeds))
+   tuple path(plink_bed), path(plink_bim), path(plink_fam), val(K), val(replicate), val(prng_seed)
 
    output:
-   tuple path("${params.plink_prefix}_admixture_K${K}_r${replicate}.stderr"), path("${params.plink_prefix}_admixture_K${K}_r${replicate}.stdout") into admixture_logs
-   path("${params.plink_prefix}.${K}_${replicate}.P") into admixture_P
-   path("${params.plink_prefix}.${K}_${replicate}.Q") into admixture_Q
-   path("${params.plink_prefix}_admixture_K${K}_r${replicate}.stdout") into admixture_CV
+   tuple path("${params.plink_prefix}_admixture_K${K}_r${replicate}.stderr"), path("${params.plink_prefix}_admixture_K${K}_r${replicate}.stdout"), emit: logs
+   path("${params.plink_prefix}.${K}_${replicate}.P"), emit: P
+   path("${params.plink_prefix}.${K}_${replicate}.Q"), emit: Q
+   path("${params.plink_prefix}_admixture_K${K}_r${replicate}.stdout"), emit: CV
 
    shell:
    plink_prefix = plink_bed.getBaseName()
@@ -156,12 +125,12 @@ process zip_Q {
    publishDir path: "${params.output_dir}/ADMIXTURE", mode: 'copy', pattern: '*.zip'
 
    input:
-   path("admixture_q_paths.tsv") from admixture_Q.collectFile() { [ "admixture_q_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
-   path(plink_fam) from fam_for_rearrange
-   path(pop_map) from filtered_pop_map_Qzip
+   path("admixture_q_paths.tsv")
+   path(plink_fam)
+   path(pop_map)
 
    output:
-   path("${params.plink_prefix}.zip") into Q_zip
+   path("${params.plink_prefix}.zip"), emit: zip
 
    shell:
    '''
@@ -189,14 +158,14 @@ process clumpak {
    publishDir path: "${params.output_dir}/ADMIXTURE", mode: 'copy', pattern: '*.tar.gz'
 
    input:
-   path CLUMPAK
-   path(pop_map) from filtered_pop_map_clumpak
-   path(Qzip) from Q_zip
-   path drawparams
+   path(CLUMPAK)
+   path(pop_map)
+   path(Qzip)
+   path(drawparams)
 
    output:
-   tuple path("${params.clumpak_path}/CLUMPAK_${params.plink_prefix}.stderr"), path("${params.clumpak_path}/CLUMPAK_${params.plink_prefix}.stdout") into clumpak_logs
-   path("CLUMPAK_${params.plink_prefix}_output.tar.gz") into clumpak_output
+   tuple path("${params.clumpak_path}/CLUMPAK_${params.plink_prefix}.stderr"), path("${params.clumpak_path}/CLUMPAK_${params.plink_prefix}.stdout"), emit: logs
+   path("CLUMPAK_${params.plink_prefix}_output.tar.gz"), emit: targz
 
    shell:
    customdraw = drawparams.exists() ? "--drawparams ${drawparams}" : ""
@@ -227,4 +196,59 @@ process clumpak {
    #Since there are a ton of different outputs, let's just throw them into a tarball for export:
    tar -czf CLUMPAK_!{params.plink_prefix}_output.tar.gz output/
    '''
+}
+
+workflow {
+   //Set up file channels for the PLINK inputs:
+   plink_bed = file(params.plink_prefix+".bed", checkIfExists: true)
+   plink_bim = file(params.plink_prefix+".bim", checkIfExists: true)
+   plink_fam = file(params.plink_prefix+".fam", checkIfExists: true)
+
+   //Set up a file channel for the population map:
+   pop_map = file(params.pop_map, checkIfExists: true)
+
+   //Set up a file channel for the samples to exclude:
+   params.samples_to_exclude = "<(echo)"
+   excludesamples = file(params.samples_to_exclude, checkIfExists: true)
+
+   //Set up a file channel for the CLUMPAK install zip:
+   CLUMPAK = file(params.clumpak_zip, checkIfExists: true)
+
+   //Set up an optional file channel for distruct's drawing parameters:
+   drawparams = file(params.drawparams)
+
+   //Set up value channels for the Ks and replicates:
+   minK = params.minK
+   maxK = params.maxK
+   Channel
+      .of(minK..maxK)
+      .tap { Ks }
+      .subscribe { println "Adding K=${it} to Ks channel" }
+   Channel
+      .of(1..params.replicates)
+      .tap { replicates }
+      .subscribe { println "Adding replicate ${it} to replicates channel" }
+   //Set up the list of PRNG seeds:
+   Random prng = new Random(params.prng_seed)
+   Channel
+      .fromList(prng.ints(params.replicates, 0, 2147483647).toArray().toList())
+      .tap { admixture_seeds }
+      .subscribe { println "Adding PRNG seed ${it} to admixture_seeds channel" }
+
+   //Exclude any samples requested from the PLINK files and the pop_map:
+   subset(plink_bed, plink_bim, plink_fam, pop_map, excludesamples)
+
+   //Run ADMIXTURE for all Ks and replicates with the subset PLINK files:
+   admixture_input = subset.out.plink
+      .combine(Ks)
+      .combine(replicates.merge(admixture_seeds))
+   admixture(admixture_input)
+
+   //Collect all the Qs, rearrange them to match the subset.out.pop_map order, and package them for CLUMPAK:
+   Qs = admixture.out.Q
+      .collectFile() { [ "admixture_q_paths.tsv", it.getSimpleName()+'\t'+it.getName()+'\t'+it+'\n' ] }
+   zip_Q(Qs, subset.out.fam, subset.out.pop_map)
+
+   //Run CLUMPAK:
+   clumpak(CLUMPAK, zip_Q.out.zip, subset.out.pop_map, drawparams)
 }
