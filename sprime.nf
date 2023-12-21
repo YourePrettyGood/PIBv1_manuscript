@@ -131,12 +131,14 @@ params.sprimematch_long_queue = 'day'
 params.sprimeproject_cpus = 1
 params.sprimeproject_mem = 1
 params.sprimeproject_timeout = '24h'
+params.sprimeproject_long_timeout = '48h'
 params.sprimeproject_queue = 'day'
-params.sprimeproject_long_queue = 'day'
+params.sprimeproject_long_queue = 'week'
 //Sprime tract frequencies
 params.sprimetf_cpus = 1
 params.sprimetf_mem = 1
 params.sprimetf_timeout = '24h'
+params.sprimetf_long_timeout = '72h'
 params.sprimetf_queue = 'day'
 params.sprimetf_long_queue = 'week'
 //Sprime tract gene lists
@@ -335,7 +337,7 @@ process sprime_project {
 
    cpus params.sprimeproject_cpus
    memory { params.sprimeproject_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
-   time { task.attempt >= 2 ? '24h' : params.sprimeproject_timeout }
+   time { task.attempt >= 2 ? params.sprimeproject_long_timeout : params.sprimeproject_timeout }
    queue { task.attempt >= 2 ? params.sprimeproject_long_queue : params.sprimeproject_queue }
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
@@ -379,7 +381,7 @@ process sprime_tractfreqs {
 
    cpus params.sprimetf_cpus
    memory { params.sprimetf_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
-   time { task.attempt >= 2 ? '48h' : params.sprimetf_timeout }
+   time { task.attempt >= 2 ? params.sprimetf_long_timeout : params.sprimetf_timeout }
    queue { task.attempt >= 2 ? params.sprimetf_long_queue : params.sprimetf_queue }
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
