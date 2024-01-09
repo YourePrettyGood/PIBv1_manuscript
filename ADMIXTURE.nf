@@ -250,5 +250,5 @@ workflow {
    zip_Q(Qs, subset.out.fam, subset.out.pop_map)
 
    //Run CLUMPAK:
-   clumpak(CLUMPAK, zip_Q.out.zip, subset.out.pop_map, drawparams)
+   clumpak(CLUMPAK, subset.out.pop_map, zip_Q.out.zip, drawparams)
 }
