@@ -32,6 +32,7 @@ params.subset_queue = 'day'
 params.admixture_cpus = 1
 params.admixture_mem = 16
 params.admixture_timeout = '24h'
+params.admixture_long_timeout = '168h'
 params.admixture_queue = 'day'
 params.admixture_long_queue = 'week'
 //Zipping of Q files for CLUMPAK:
@@ -87,7 +88,7 @@ process admixture {
 
    cpus params.admixture_cpus
    memory { params.admixture_mem.plus(task.attempt.minus(1).multiply(32))+' GB' }
-   time { task.attempt >= 2 ? '96h' : params.admixture_timeout }
+   time { task.attempt >= 2 ? params.admixture_long_timeout : params.admixture_timeout }
    queue { task.attempt >= 2 ? params.admixture_long_queue : params.admixture_queue }
    errorStrategy { task.exitStatus in ([1]+(134..140).collect()) ? 'retry' : 'terminate' }
    maxRetries 1
