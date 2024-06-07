@@ -2,14 +2,14 @@
 /* Pipeline to infer single-population demographic histories with SMC++     *
  * Core steps:                                                              *
  *  Extraction of target population from main VCF for SMC++ ->              *
- *  Composing per-population masks from mosdepth's quantized BEDs |->       *
- *  smcpp vcf2smc with n distinguished lineages ->                          *
+ *  Composing per-population masks from mosdepth's quantized BEDs ->        *
+ *  smcpp vcf2smc with n distinguished lineages |->                         *
  *  smcpp estimate for each population and distinguished lineage ->         *
  *  smcpp plot --csv for each run of estimate                               *
- *  |-> bcftools +split to extract 4 samples individually from each pop ->  *
- *   generate_multihetsep.py to make MSMC2 inputs for each pop pair ->      *
- *   msmc2 on each pop pair                                                 *
- *  |-> CHIMP on each pop (from VCFs, no masks)                             */
+ *  |> bootstrap vcf2smc outputs ->                                         *
+ *   smcpp estimate each bootstrap ->                                       *
+ *   smcpp plot each bootstrap                                              *
+ * => rename and concatenate all results                                    */
 
 //Default paths, globs, and regexes:
 //Jointly genotyped VCFs:
@@ -29,15 +29,6 @@ params.depth_regex = ~/^(.+)$/
 params.id_colname = "SampleID"
 //Target group column name:
 params.smcpp_target_colname = "AnalysisGroup"
-
-//Regexes for CHIMP ref and anc FASTAs:
-params.ref_bychrom_regex = ~/^(.+)$/
-params.anc_bychrom_regex = ~/^.+_(.+?)$/
-
-//Whether or not to run MSMC2:
-params.run_msmc2 = false
-//Whether or not to run CHIMP:
-params.run_chimp = false
 
 //Reference-related parameters for the pipeline:
 params.ref_prefix = "/gpfs/gibbs/pi/tucci/pfr8/refs"
@@ -101,31 +92,24 @@ Channel
    .tap { depth_dists }
    .subscribe { println "Added ${it[0]} (${it[1]}) to depth_dists channel" }
 
+//Detection mechanism for "chr" prefixes of autosomes:
+has_chr_prefix = params.autosomes.count('chr') > 0
+autosome_list = params.autosomes
+autosome_num_list = has_chr_prefix ? params.autosomes.replaceAll('chr', '') : autosome_list
+Map autosome_map = [params.autosomes.replaceAll('chr', '').tokenize(','), params.autosomes.tokenize(',')]
+   .transpose()
+   .collectEntries()
+
 num_autosomes = params.autosomes.tokenize(',').size()
 
-//Set up a value channel of the autosomes:
+//Set up a value channel of the autosomes without chr prefix if detected:
 Channel
-   .fromList(params.autosomes.tokenize(','))
+   .fromList(autosome_num_list.tokenize(','))
    .tap { autosomes }
 
 //Set up an optional file channel for the mappability mask for MSMC2:
-params.mappability_mask = "NOMASK"
-mappability_mask = file(params.mappability_mask)
-
-//Tap any channels necessary for MSMC2 if it's enabled/selected:
-if (params.run_msmc2) {
-   autosomes
-      .tap { autosomes_msmc2 }
-      .tap { autosomes_msmc2_ccr }
-   pop_map
-      .tap { pop_map_msmc2 }
-      .tap { pop_map_msmc2_ccr }
-} else {
-   autosomes_msmc2 = Channel.empty()
-   autosomes_msmc2_ccr = Channel.empty()
-   pop_map_msmc2 = Channel.empty()
-   pop_map_msmc2_ccr = Channel.empty()
-}
+//params.mappability_mask = "NOMASK"
+//mappability_mask = file(params.mappability_mask)
 
 //Set up the file channels for the metadata file:
 metadata = file(params.metadata_file, checkIfExists: true)
@@ -137,28 +121,6 @@ metadata = file(params.metadata_file, checkIfExists: true)
 ref = file(params.ref, checkIfExists: true)
 ref_dict = file(params.ref.replaceFirst("[.]fn?a(sta)?([.]gz)?", ".dict"), checkIfExists: true)
 ref_fai = file(params.ref+'.fai', checkIfExists: true)
-
-//A couple extra channels if CHIMP is to be run:
-if (params.run_chimp) {
-   Channel
-      .fromPath(params.ref_bychrom_glob, checkIfExists: true)
-      .ifEmpty { error "Unable to find per-chromosome reference FASTAs for CHIMP matching glob: ${params.ref_bychrom_glob}" }
-      .map { a -> [ (a.getSimpleName() =~ params.ref_bychrom_regex)[0][1], a] }
-      .filter { params.autosomes.tokenize(",").contains(it[0]) }
-      .tap { refs }
-      .subscribe { println "Added ${it[0]} (${it[1]}) to refs channel for CHIMP" }
-
-   Channel
-      .fromPath(params.anc_bychrom_glob, checkIfExists: true)
-      .ifEmpty { error "Unable to find per-chromosome ancestral state FASTAs for CHIMP matching glob: ${params.anc_bychrom_glob}" }
-      .map { a -> [ (a.getSimpleName() =~ params.anc_bychrom_regex)[0][1], a] }
-      .filter { params.autosomes.tokenize(",").contains(it[0]) }
-      .tap { ancs }
-      .subscribe { println "Added ${it[0]} (${it[1]}) to ancs channel for CHIMP" }
-} else {
-   refs = Channel.empty()
-   ancs = Channel.empty()
-}
 
 //Default parameter values:
 //Filters to apply to the VCF:
@@ -174,10 +136,6 @@ params.maxdp_quantile = "0.995"
 params.frac_uncallable = "0"
 //Mutation rate to use for SMC++:
 params.mutation_rate = '1.25e-8'
-//Mutation rate to use for CHIMP:
-params.mut_rate = '0.0000000125'
-//Recombination rate to use for CHIMP:
-params.rec_rate = '0.0000000125'
 //Seed for PRNGs:
 params.prng_seed = 42
 //Number of distinguished lineages to choose for SMC++ composite likelihood:
@@ -186,14 +144,27 @@ params.num_dlineages = 10
 //This is simply the number of autosomes times the number of distinguished
 // lineages to use for the composite likelihood.
 smcpp_chroms_times_dlineages = num_autosomes.multiply(params.num_dlineages)
-//Number of samples to use per population for MSMC2:
-params.msmc2_num_samples = 2
-params.msmc2_num_haplotypes = params.msmc2_num_samples.multiply(2)
-//Time pattern string for MSMC2:
-//Default is 1*2+25*1+1*2+1*3
-params.msmc2_time_pattern = '1*2+25*1+1*2+1*3'
-//Sample sizes to use for CHIMP (comma-separated list of integers):
-params.chimp_n_s = '2,5,10'
+/*//Number of bootstraps to perform:
+params.num_bootstraps = 0
+//Bootstrap block size (bp):
+params.bootstrap_block_size = 5000000
+//Number of blocks per bootstrapped chromosome:
+//hs37d5 has ~2881 Mbp in the 22 autosomes, so int(2881/22)=130, and int(130/5)=26
+params.num_blocks_per_chrom = 26
+//Number of chromosomes per bootstrap:
+params.num_chroms_per_bootstrap = 22
+//PRNG seed for bootstrapping:
+params.bootstrap_prng_seed = 42
+
+//Set up value channel for the bootstraps:
+if (params.num_bootstraps > 0) {
+   Channel
+      .of(1..params.num_bootstraps)
+      .tap { bootstraps }
+      .subscribe { println "Adding bootstrap ${it} to bootstraps channel" }
+} else {
+   bootstraps = Channel.empty()
+}*/
 
 //Defaults for cpus, memory, and time for each process:
 //Constructing per-population mask BEDs
@@ -221,27 +192,15 @@ params.smcpp_timeout = '24h'
 params.smcppplot_cpus = 1
 params.smcppplot_mem = 1
 params.smcppplot_timeout = '6h'
-//generate_multihetsep.py
-params.msmcprep_cpus = 1
-params.msmcprep_mem = 4
-params.msmcprep_timeout = '24h'
-//msmc2
-params.msmc2_cpus = params.msmc2_num_haplotypes.multiply(params.msmc2_num_haplotypes.minus(1)).intdiv(2)
-params.msmc2_mem = 40
-params.msmc2_timeout = '24h'
-//msmc2 for population pairs
-params.msmc2_ccr_cpus = params.msmc2_num_haplotypes.multiply(params.msmc2_num_haplotypes.minus(1)).intdiv(2)
-params.msmc2_ccr_mem = 110
-params.msmc2_ccr_timeout = '24h'
-//CHIMP
-params.chimp_cpus = 1
-params.chimp_mem = 8
-params.chimp_timeout = '48h'
+/*//bootstrap
+params.bootstrap_cpus = 1
+params.bootstrap_mem = 1
+params.bootstrap_timeout = '2h'*/
 
 //Preprocess the per-chromosome VCF channel to include the indices:
 perchrom_vcfs
    .join(perchrom_tbis, by: 0, failOnDuplicate: true, failOnMismatch: true)
-   .filter({ params.autosomes.tokenize(',').contains(it[0]) })
+   .filter({ autosome_num_list.tokenize(',').contains(it[0]) })
    .set { perchrom_vcfs_subset }
 
 process smcpp_vcf_subset {
@@ -271,23 +230,6 @@ process smcpp_vcf_subset {
    bcftools view -S !{pop}_samples.tsv -Oz -o !{pop}_chr!{chrom}.vcf.gz !{input_vcf} 2> bcftools_view_smcpp_!{pop}_chr!{chrom}.stderr > bcftools_view_smcpp_!{pop}_chr!{chrom}.stdout
    tabix -f !{pop}_chr!{chrom}.vcf.gz
    '''
-}
-
-//Tap the VCF channel for MSMC2 if enabled/selected:
-if (params.run_msmc2) {
-   smcpp_vcfs
-      .tap { msmc2_vcfs }
-      .tap { msmc2_ccr_vcfs }
-} else {
-   msmc2_vcfs = Channel.empty()
-   msmc2_ccr_vcfs = Channel.empty()
-}
-//Tap the VCF channel for CHIMP if enabled/selected:
-if (params.run_chimp) {
-   smcpp_vcfs
-      .tap { chimp_vcfs }
-} else {
-   chimp_vcfs = Channel.empty()
 }
 
 process mosdepth {
@@ -326,14 +268,6 @@ process mosdepth {
    '''
 }
 
-//Tap the mosdepth_callable channel for MSMC2 if enabled/selected:
-if (params.run_msmc2) {
-   mosdepth_callable
-      .tap { mosdepth_callable_ccr }
-} else {
-   mosdepth_callable_ccr = Channel.empty()
-}
-
 process pop_mask {
    tag "${pop} chr${chr}"
 
@@ -346,24 +280,25 @@ process pop_mask {
    publishDir path: "${params.output_dir}/uncallable", mode: 'copy', pattern: '*.bed.gz'
 
    input:
-   tuple val(pop), path(perindiv_masks), val(chr) from pop_map
+   tuple val(pop), path(perindiv_masks), val(chrom) from pop_map
                                                           .join(mosdepth_masks, by: 0, failOnMismatch: true, failOnDuplicate: true)
                                                           .map { [ it[1], it[2] ] }
                                                           .groupTuple(by: 0)
                                                           .combine(autosomes)
 
    output:
-   tuple val(pop), val(chr), path("${pop}_chr${chr}_mask.bed.gz"), path("${pop}_chr${chr}_mask.bed.gz.tbi") into pop_masks
+   tuple val(pop), val(chrom), path("${pop}_chr${chrom}_mask.bed.gz"), path("${pop}_chr${chrom}_mask.bed.gz.tbi") into pop_masks
 
    shell:
+   chrid = autosome_map[chrom]
    '''
    module load !{params.mod_htslib}
    module load !{params.mod_bedtools}
    n_masks=$(ls !{perindiv_masks} | wc -l)
    bedtools multiinter -i !{perindiv_masks} | \
-      awk -v "chrom=!{chr}" -v "n=${n_masks}" -v "thresh=!{params.frac_uncallable}" 'BEGIN{FS="\t";OFS=FS;}$1==chrom{if ($4/n>=thresh) {print $1, $2, $3;};}' | \
-      bgzip -c > !{pop}_chr!{chr}_mask.bed.gz
-   tabix -f !{pop}_chr!{chr}_mask.bed.gz
+      awk -v "chrom=!{chrid}" -v "n=${n_masks}" -v "thresh=!{params.frac_uncallable}" 'BEGIN{FS="\t";OFS=FS;}$1==chrom{if ($4/n>=thresh) {print $1, $2, $3;};}' | \
+      bgzip -c > !{pop}_chr!{chrom}_mask.bed.gz
+   tabix -f !{pop}_chr!{chrom}_mask.bed.gz
    '''
 }
 
@@ -386,6 +321,7 @@ process vcf_to_smc {
    tuple val(pop), path("${pop}_chr${chrom}_d*.smc.gz") into smcpp_inputs
 
    shell:
+   chrid = autosome_map[chrom]
    '''
    module load !{params.mod_bcftools}
    module load !{params.mod_smcpp}
@@ -408,7 +344,7 @@ process vcf_to_smc {
       echo "Drawing ${n_draws} distinguished lineages instead"
    fi
    sampleid_max=$(awk 'END{print NR-1;}' !{pop}_samples.tsv)
-   shuf --random-source=<(seed_coreutils_PRNG !{params.prng_seed}) -i 0-${sampleid_max} -n${n_draws} | \
+   shuf --random-source=<(seed_coreutils_PRNG !{params.prng_seed}) -i 0-${sampleid_max} -n${n_draws} | \\
    while read aid;
       do
       #Since we're working with unphased data, the distinguished lineages must come
@@ -432,10 +368,17 @@ process vcf_to_smc {
          fi
          i=$((i+1))
       done 3< !{pop}_samples.tsv
-      smc++ vcf2smc -m !{smcpp_mask_bed} -d ${dlineage} !{pop}_chr!{chrom}.vcf.gz !{pop}_chr!{chrom}_d${aid}_${bid}.smc.gz !{chrom} ${samplelist} 2> smcpp_vcf2smc_!{pop}_chr!{chrom}_d${aid}_${bid}.stderr > smcpp_vcf2smc_!{pop}_chr!{chrom}_d${aid}_${bid}.stdout
+      smc++ vcf2smc -m !{smcpp_mask_bed} -d ${dlineage} !{pop}_chr!{chrom}.vcf.gz !{pop}_chr!{chrom}_d${aid}_${bid}.smc.gz !{chrid} ${samplelist} 2> smcpp_vcf2smc_!{pop}_chr!{chrom}_d${aid}_${bid}.stderr > smcpp_vcf2smc_!{pop}_chr!{chrom}_d${aid}_${bid}.stdout
    done
    '''
 }
+
+/*if (params.num_bootstraps > 0) {
+   smcpp_inputs
+      .tap { smcpp_inputs_for_bootstrap }
+} else {
+   smcpp_inputs_for_bootstrap = Channel.empty()
+}*/
 
 process smcpp_estimate {
    tag "${pop}"
@@ -502,258 +445,107 @@ process smcpp_plot {
    '''
 }
 
-/*process msmc2_prep {
-   tag "${pop} chr${chrom}"
+/*process bootstrap {
+   tag "${pop}"
 
-   cpus params.msmcprep_cpus
-   memory { params.msmcprep_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
-   time { task.attempt >= 2 ? '48h' : params.msmcprep_timeout }
+   cpus params.bootstrap_cpus
+   memory { params.bootstrap_mem.plus(task.attempt.minus(1).multiply(4))+' GB' }
+   time { task.attempt >= 2 ? '48h' : params.bootstrap_timeout }
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
 
-   publishDir path: "${params.output_dir}/logs", mode: 'copy', pattern: '*.std{err,out}'
-
    input:
-   tuple val(pop), val(chrom), path("*"), path("*"), path("*") from pop_map_msmc2
-      .join(mosdepth_callable, by: 0, failOnMismatch: true, failOnDuplicate: true)
-      .map { [ it[1], it[2] ] }
-      .groupTuple(by: 0)
-      .combine(autosomes_msmc2)
-      .map { [ it[0], it[2], it[1] ] }
-      .join(msmc2_vcfs, by: [0, 1], failOnMismatch: true, failOnDuplicate: true)
+   tuple val(pop), path(smcinputpaths), val(bootstrap) from smcpp_inputs_for_bootstraps.flatMap({ it[1] })
+                                                               .map({ [ (it.getSimpleName() =~ ~/^(.+?)_/)[0][1], it ] })
+                                                               .collectFile() { [ "${it[0]}.txt", it[1].getSimpleName()+'\t'+it[1].getName()+'\t'+it[1]+'\n' ] }
+                                                               .map({ [ it.getSimpleName(), it ] })
+                                                               .combine(bootstraps)
 
    output:
-   tuple path("bcftools_view_bSNPs_msmc2_${pop}_samples_chr${chrom}.stderr"), path("bcftools_split_msmc2_${pop}_samples_chr${chrom}.stderr"), path("bcftools_split_msmc2_${pop}_samples_chr${chrom}.stdout"), path("generate_multihetsep_${pop}_chr${chrom}.stderr") into msmc2_prep_logs
-   tuple val(pop), path("${pop}_chr${chrom}_multihetsep.txt") into msmc2_inputs
+   tuple val(pop), val(bootstrap), path("${pop}_b${bootstrap}_chr${chrom}_d*.smc.gz") into bootstrap_smcpp_inputs
 
    shell:
    '''
-   module load !{params.mod_bcftools}
-   module load !{params.mod_msmctools}
-   #Function for seeding PRNGs in utilities like shuf, shred, and sort:
-   #See https://www.gnu.org/software/coreutils/manual/html_node/Random-sources.html
-   seed_coreutils_PRNG()
-   {
-      seed="$1"
-      openssl enc -aes-256-ctr -pass pass:"$seed" -nosalt < /dev/zero 2> /dev/null
-   }
-   #Get the list of samples to retain:
-   bcftools query -l !{pop}_chr!{chrom}.vcf.gz | \
-      shuf --random-source=<(seed_coreutils_PRNG !{params.prng_seed}) -n!{params.msmc2_num_samples} > samples_to_use.txt
-   #Split the VCF into per-individual VCFs of these samples:
-   bcftools view -Ou -v snps -m 2 -M 2 !{pop}_chr!{chrom}.vcf.gz 2> bcftools_view_bSNPs_msmc2_!{pop}_samples_chr!{chrom}.stderr | \
-      bcftools +split -S samples_to_use.txt -Oz -o . - 2> bcftools_split_msmc2_!{pop}_samples_chr!{chrom}.stderr > bcftools_split_msmc2_!{pop}_samples_chr!{chrom}.stdout
-   #Now generate the multihetsep files using the per-sample callable BEDs and VCFs:
-   maskargs=""
-   vcfargs=""
-   while read sampleid;
+   #Symlink the many input files from the current population !{pop}:
+   while IFS=$'\t' read -a a;
       do
-      maskargs="${maskargs} --mask=${sampleid}.callable.bed.gz"
-      vcfargs="${vcfargs} ${sampleid}.vcf.gz"
-   done < samples_to_use.txt
-   generate_multihetsep.py ${maskargs} ${vcfargs} > !{pop}_chr!{chrom}_multihetsep.txt 2> generate_multihetsep_!{pop}_chr!{chrom}.stderr
+      ln -s ${a[2]} ${a[1]};
+   done < !{smcinputpaths}
+   //Bootstrap separately for each distinguished lineage:
+   awk 'BEGIN{FS="\t";OFS=FS;}{n=split(\$1, a, "_");print a[n];}' !{smcinputpaths} | \\
+      while read d;
+         do
+         //Determine bootstrap chunk boundaries:
+         gzip -dc *_${d}.smc.gz | \\
+            !{projectDir}/HumanPopGenScripts/SMCpp/defineBootstrapBlocks.awk -v "blocksize=!{params.bootstrap_block_size}" > bootstrap_block_boundaries_${d}.txt
+         //Perform the bootstrap:
+         gzip -dc *_${d}.smc.gz | \\
+            !{projectDir}/HumanPopGenScripts/SMCpp/bootstrapBlocks.awk -v "blocksperchrom=!{params.num_blocks_per_chrom}" -v "nchroms=!{params.num_chroms_per_bootstrap}" -v "prefix=!{pop}_b" -v "suffix=_${d}.smc.gz" -v "seed=!{params.bootstrap_prng_seed}" bootstrap_block_boundaries_${d}.txt -
+      done
    '''
 }
 
-process msmc2 {
+process bootstrap_estimate {
    tag "${pop}"
 
-   cpus params.msmc2_cpus
-   memory { params.msmc2_mem.plus(task.attempt.minus(1).multiply(32))+' GB' }
-   time { task.attempt >= 2 ? '48h' : params.msmc2_timeout }
+   cpus params.smcpp_cpus
+   memory { params.smcpp_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
+   time { task.attempt >= 2 ? '48h' : params.smcpp_timeout }
    errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
    maxRetries 1
 
    publishDir path: "${params.output_dir}/logs", mode: 'copy', pattern: '*.std{err,out}'
-   publishDir path: "${params.output_dir}/logs", mode: 'copy', pattern: '*.log'
-   publishDir path: "${params.output_dir}/msmc2", mode: 'copy', pattern: '*.msmc2.*.txt'
+   publishDir path: "${params.output_dir}/logs", mode: 'copy', pattern: '.debug.txt', saveAs: { 'bootstrap_'+pop+it }
+   publishDir path: "${params.output_dir}/bootstraps", mode: 'copy', pattern: 'model.final.json', saveAs: { pop+'.'+it }
+   publishDir path: "${params.output_dir}/bootstraps", mode: 'copy', pattern: '.model.*.json', saveAs: { pop+it }
 
    input:
-   tuple val(pop), path(multihetseps) from msmc2_inputs.groupTuple(by: 0)
+   tuple val(pop), path(smcinputpaths) from bootstrap_smcpp_inputs.flatMap({ it[2] })
+                                               .map({ [ (it.getSimpleName() =~ ~/^(.+?_b[0-9]+)_/)[0][1], it ] })
+                                               .collectFile() { [ "${it[0]}.txt", it[1].getSimpleName()+'\t'+it[1].getName()+'\t'+it[1]+'\n' ] }
+                                               .map({ [ it.getSimpleName(), it ] })
 
    output:
-   tuple path("msmc2_${pop}.stderr"), path("msmc2_${pop}.stdout") into msmc2_logs
-   tuple val(pop), path("${params.run_name}_${pop}_n${params.msmc2_num_haplotypes}.msmc2.loop.txt"), path("${params.run_name}_${pop}_n${params.msmc2_num_haplotypes}.msmc2.final.txt") into msmc2_output,msmc2_output_tpop
+   tuple path("bootstrap_estimate_${pop}.stderr"), path("bootstrap_estimate_${pop}.stdout"), path(".debug.txt") into bootstrap_estimate_logs
+   tuple val(pop), path("model.final.json") into bootstrap_final_models
+   tuple val(pop), path(".model.iter*.json") into bootstrap_intermediate_models
 
    shell:
    '''
-   module load !{params.mod_msmc2}
-   haplist=$(seq -s, 0 $((!{params.msmc2_num_haplotypes}-1)))
-   msmc2 -t !{task.cpus} -p "!{params.msmc2_time_pattern}" -o !{params.run_name}_!{pop}_n!{params.msmc2_num_haplotypes}.msmc2 -I ${haplist} !{multihetseps} 2> msmc2_!{pop}.stderr > msmc2_!{pop}.stdout
+   module load !{params.mod_smcpp}
+   #Symlink the many input files from the current population !{pop}:
+   while IFS=$'\t' read -a a;
+      do
+      ln -s ${a[2]} ${a[1]};
+   done < !{smcinputpaths}
+   #Now run SMC++ estimate on all of the inputs together:
+   smc++ estimate --seed !{params.prng_seed} --cores !{task.cpus} -o . !{params.mutation_rate} *.smc.gz 2> bootstrap_estimate_!{pop}.stderr > bootstrap_estimate_!{pop}.stdout
+   '''
+}
+
+process boot_plot {
+   tag "${pop}"
+
+   cpus params.smcppplot_cpus
+   memory { params.smcppplot_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
+   time { task.attempt >= 2 ? '48h' : params.smcppplot_timeout }
+   errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
+   maxRetries 1
+
+   publishDir path: "${params.output_dir}/logs", mode: 'copy', pattern: '*.std{err,out}'
+   publishDir path: "${params.output_dir}/bootstraps", mode: 'copy', pattern: '*.{csv,png}'
+
+   input:
+   tuple val(pop), path("model.final.json"), path("*") from bootstrap_final_models.join(bootstrap_intermediate_models, by: 0, failOnDuplicate: true, failOnMismatch: true)
+
+   output:
+   tuple path("bootstrap_plot_${pop}.stderr"), path("bootstrap_plot_${pop}.stdout") into bootstrap_plot_logs
+   tuple val(pop), path("${pop}_all_models.png") into bootstrap_perpop_plots
+   tuple val(pop), path("${pop}_all_models.csv") into bootstrap_perpop_csvs
+
+   shell:
+   '''
+   module load !{params.mod_smcpp}
+   smc++ plot --csv !{pop}_all_models.png model.final.json .model.iter*.json 2> bootstrap_plot_!{pop}.stderr > bootstrap_plot_!{pop}.stdout
    '''
 }*/
-
-process msmc2_ccr_prep {
-   tag "${qpop} ${tpop} chr${chrom}"
-
-   cpus params.msmcprep_cpus
-   memory { params.msmcprep_mem.plus(task.attempt.minus(1).multiply(16))+' GB' }
-   time { task.attempt >= 2 ? '48h' : params.msmcprep_timeout }
-   errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
-   maxRetries 1
-
-   publishDir path: "${params.output_dir}/logs", mode: 'copy', pattern: '*.std{err,out}'
-
-   input:
-   tuple val(chrom), val(qpop), path(qpopbeds), path(qpopvcf), path(qpoptbi), val(tpop), path(tpopbeds), path(tpopvcf), path(tpoptbi) from pop_map_msmc2_ccr
-      .join(mosdepth_callable_ccr, by: 0, failOnMismatch: true, failOnDuplicate: true)
-      .map { [ it[1], it[2] ] }
-      .groupTuple(by: 0)
-      .combine(autosomes_msmc2_ccr)
-      .map { [ it[0], it[2], it[1] ] }
-      .join(msmc2_ccr_vcfs, by: [0, 1], failOnMismatch: true, failOnDuplicate: true)
-      .map { [ it[1], it[0], it[2], it[3], it[4] ] }
-      .tap { msmc2_ccr_tpop }
-      .combine(msmc2_ccr_tpop, by: 0)
-      .filter({ it[1].compareTo(it[5]) < 0 })
-   path mappability_mask
-
-   output:
-   tuple path("bcftools_view_bSNPs_msmc2_ccr_${qpop}_samples_chr${chrom}.stderr"), path("bcftools_view_bSNPs_msmc2_ccr_${tpop}_samples_chr${chrom}.stderr"), path("bcftools_split_msmc2_ccr_${qpop}_samples_chr${chrom}.stderr"), path("bcftools_split_msmc2_ccr_${tpop}_samples_chr${chrom}.stderr"), path("bcftools_split_msmc2_ccr_${qpop}_samples_chr${chrom}.stdout"), path("bcftools_split_msmc2_ccr_${tpop}_samples_chr${chrom}.stdout"), path("generate_multihetsep_${qpop}_${tpop}_chr${chrom}.stderr") into msmc2_ccr_prep_logs
-   tuple val(qpop), val(tpop), path("${qpop}_${tpop}_chr${chrom}_multihetsep.txt") into msmc2_ccr_inputs
-
-   shell:
-   mapmask = mappability_mask.name != 'NOMASK' ? "--negative_mask ${mappability_mask}" : ""
-   '''
-   module load !{params.mod_bcftools}
-   #Function for seeding PRNGs in utilities like shuf, shred, and sort:
-   #See https://www.gnu.org/software/coreutils/manual/html_node/Random-sources.html
-   seed_coreutils_PRNG()
-   {
-      seed="$1"
-      openssl enc -aes-256-ctr -pass pass:"$seed" -nosalt < /dev/zero 2> /dev/null
-   }
-   #Get the list of samples to retain:
-   nsamples=!{params.msmc2_num_samples}
-   bcftools query -l !{qpopvcf} | \
-      shuf --random-source=<(seed_coreutils_PRNG !{params.prng_seed}) -n${nsamples} > !{qpop}_samples_to_use.txt
-   bcftools query -l !{tpopvcf} | \
-      shuf --random-source=<(seed_coreutils_PRNG !{params.prng_seed}) -n${nsamples} > !{tpop}_samples_to_use.txt
-   #Split the VCF into per-individual VCFs of these samples:
-   bcftools view -Ou -v snps -m 2 -M 2 !{qpopvcf} 2> bcftools_view_bSNPs_msmc2_ccr_!{qpop}_samples_chr!{chrom}.stderr | \
-      bcftools +split -S !{qpop}_samples_to_use.txt -Oz -o . - 2> bcftools_split_msmc2_ccr_!{qpop}_samples_chr!{chrom}.stderr > bcftools_split_msmc2_ccr_!{qpop}_samples_chr!{chrom}.stdout
-   bcftools view -Ou -v snps -m 2 -M 2 !{tpopvcf} 2> bcftools_view_bSNPs_msmc2_ccr_!{tpop}_samples_chr!{chrom}.stderr | \
-      bcftools +split -S !{tpop}_samples_to_use.txt -Oz -o . - 2> bcftools_split_msmc2_ccr_!{tpop}_samples_chr!{chrom}.stderr > bcftools_split_msmc2_ccr_!{tpop}_samples_chr!{chrom}.stdout
-   #Now generate the multihetsep files using the per-sample callable BEDs and VCFs:
-   module load !{params.mod_python}
-   module load !{params.mod_msmctools}
-   maskargs="!{mapmask}"
-   vcfargs=""
-   while read sampleid;
-      do
-      maskargs="${maskargs} --mask=${sampleid}.callable.bed.gz"
-      vcfargs="${vcfargs} ${sampleid}.vcf.gz"
-   done < !{qpop}_samples_to_use.txt
-   while read sampleid;
-      do
-      maskargs="${maskargs} --mask=${sampleid}.callable.bed.gz"
-      vcfargs="${vcfargs} ${sampleid}.vcf.gz"
-   done < !{tpop}_samples_to_use.txt
-   generate_multihetsep.py ${maskargs} ${vcfargs} > !{qpop}_!{tpop}_chr!{chrom}_multihetsep.txt 2> generate_multihetsep_!{qpop}_!{tpop}_chr!{chrom}.stderr
-   '''
-}
-
-
-process msmc2_ccr {
-   tag "${qpop} ${tpop}"
-
-   cpus params.msmc2_ccr_cpus
-   memory { params.msmc2_ccr_mem.plus(task.attempt.minus(1).multiply(32))+' GB' }
-   time { task.attempt >= 2 ? '48h' : params.msmc2_ccr_timeout }
-   errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
-   maxRetries 1
-
-   publishDir path: "${params.output_dir}/logs", mode: 'copy', pattern: '*.std{err,out}'
-   publishDir path: "${params.output_dir}/logs", mode: 'copy', pattern: '*.log'
-   publishDir path: "${params.output_dir}/msmc2", mode: 'copy', pattern: '*.txt'
-   publishDir path: "${params.output_dir}/msmc2", mode: 'copy', pattern: '*.pdf'
-
-   input:
-   tuple val(qpop), val(tpop), path(multihetseps) from msmc2_ccr_inputs
-      .groupTuple(by: [0, 1])
-
-   output:
-   tuple path("msmc2_${qpop}_pair_${qpop}_${tpop}.stderr"), path("msmc2_${qpop}_pair_${qpop}_${tpop}.stdout"), path("msmc2_${tpop}_pair_${qpop}_${tpop}.stderr"), path("msmc2_${tpop}_pair_${qpop}_${tpop}.stdout") into msmc2_logs
-   tuple path("msmc2_${qpop}_${tpop}.stderr"), path("msmc2_${qpop}_${tpop}.stdout"), path("combineCrossCoal_${qpop}_${tpop}.stderr"), path("MSMC-IM_${params.run_name}_${qpop}_${tpop}_n${params.msmc2_num_haplotypes}.stderr"), path("MSMC-IM_${params.run_name}_${qpop}_${tpop}_n${params.msmc2_num_haplotypes}.stdout") into msmc2_ccr_logs
-   tuple val(qpop), val(tpop), path("${params.run_name}_${qpop}_n${params.msmc2_num_haplotypes}_pair_${qpop}_${tpop}.msmc2.loop.txt"), path("${params.run_name}_${qpop}_n${params.msmc2_num_haplotypes}_pair_${qpop}_${tpop}.msmc2.final.txt"), path("${params.run_name}_${tpop}_n${params.msmc2_num_haplotypes}_pair_${qpop}_${tpop}.msmc2.loop.txt"), path("${params.run_name}_${tpop}_n${params.msmc2_num_haplotypes}_pair_${qpop}_${tpop}.msmc2.final.txt") into msmc2_output
-   tuple val(qpop), val(tpop), path("${params.run_name}_${qpop}_${tpop}_n${params.msmc2_num_haplotypes}.msmc2.loop.txt"), path("${params.run_name}_${qpop}_${tpop}_n${params.msmc2_num_haplotypes}.msmc2.final.txt"), path("${params.run_name}_${qpop}_${tpop}_n${params.msmc2_num_haplotypes}_combined.msmc2.final.txt"), path("${params.run_name}_${qpop}_${tpop}_n${params.msmc2_num_haplotypes}.b1_${params.msmcim_beta1}.b2_${params.msmcim_beta2}.MSMC_IM.estimates.txt"), path("${params.run_name}_${qpop}_${tpop}_n${params.msmc2_num_haplotypes}.b1_${params.msmcim_beta1}.b2_${params.msmcim_beta2}.MSMC_IM.fittingdetails.txt"), path("${params.run_name}_${qpop}_${tpop}_n${params.msmc2_num_haplotypes}.b1_${params.msmcim_beta1}.b2_${params.msmcim_beta2}.MSMC_IM.fittingdetails.xlog.pdf") into msmc2_ccr_output
-
-   shell:
-   '''
-   module load !{params.mod_msmc2}
-   #Run MSMC2 on query population:
-   haplist=$(seq -s, 0 $((!{params.msmc2_num_haplotypes}-1)))
-   echo "Haplotype pair list for !{qpop} MSMC2: ${haplist}"
-   msmc2 -t !{task.cpus} -p "!{params.msmc2_time_pattern}" -o !{params.run_name}_!{qpop}_n!{params.msmc2_num_haplotypes}_pair_!{qpop}_!{tpop}.msmc2 -I ${haplist} !{multihetseps} 2> msmc2_!{qpop}_pair_!{qpop}_!{tpop}.stderr > msmc2_!{qpop}_pair_!{qpop}_!{tpop}.stdout
-   #Run MSMC2 on target population:
-   haplist=$(seq -s, !{params.msmc2_num_haplotypes} $((2*!{params.msmc2_num_haplotypes}-1)))
-   echo "Haplotype pair list for !{tpop} MSMC2: ${haplist}"
-   msmc2 -t !{task.cpus} -p "!{params.msmc2_time_pattern}" -o !{params.run_name}_!{tpop}_n!{params.msmc2_num_haplotypes}_pair_!{qpop}_!{tpop}.msmc2 -I ${haplist} !{multihetseps} 2> msmc2_!{tpop}_pair_!{qpop}_!{tpop}.stderr > msmc2_!{tpop}_pair_!{qpop}_!{tpop}.stdout
-   #Generate the list of inter-population haplotype comparisons:
-   haplist=""
-   amax=$((!{params.msmc2_num_haplotypes}-1))
-   bmax=$((2*!{params.msmc2_num_haplotypes}-1))
-   a=0
-   while [[ "${a}" -le "${amax}" ]];
-      do
-      b=!{params.msmc2_num_haplotypes}
-      while [[ "${b}" -le "${bmax}" ]];
-         do
-         haplist="${haplist},${a}-${b}"
-         b=$((b+1))
-      done
-      a=$((a+1))
-   done
-   haplist=${haplist:1}
-   echo "Haplotype pair list for !{qpop}-!{tpop} cross-coalescence MSMC2: ${haplist}"
-   #Run MSMC2 on the inter-population haplotype pairs:
-   msmc2 -t !{task.cpus} -p "!{params.msmc2_time_pattern}" -o !{params.run_name}_!{qpop}_!{tpop}_n!{params.msmc2_num_haplotypes}.msmc2 -I ${haplist} !{multihetseps} 2> msmc2_!{qpop}_!{tpop}.stderr > msmc2_!{qpop}_!{tpop}.stdout
-   #Now interpolate the cross-coalescence results with the within-population results:
-   module load !{params.mod_python}
-   module load !{params.mod_msmctools}
-   combineCrossCoal.py !{params.run_name}_!{qpop}_!{tpop}_n!{params.msmc2_num_haplotypes}.msmc2.final.txt !{params.run_name}_!{qpop}_n!{params.msmc2_num_haplotypes}_pair_!{qpop}_!{tpop}.msmc2.final.txt !{params.run_name}_!{tpop}_n!{params.msmc2_num_haplotypes}_pair_!{qpop}_!{tpop}.msmc2.final.txt 2> combineCrossCoal_!{qpop}_!{tpop}.stderr > !{params.run_name}_!{qpop}_!{tpop}_n!{params.msmc2_num_haplotypes}_combined.msmc2.final.txt
-   #And finally run MSMC-IM on the results:
-   module load !{params.mod_msmcim}
-   MSMC_IM.py -mu !{params.mutation_rate} -p '!{params.msmc2_time_pattern}' -beta !{params.msmcim_beta1},!{params.msmcim_beta2} --printfittingdetails --plotfittingdetails --xlog -o ./!{params.run_name}_!{qpop}_!{tpop}_n!{params.msmc2_num_haplotypes} !{params.run_name}_!{qpop}_!{tpop}_n!{params.msmc2_num_haplotypes}_combined.msmc2.final.txt 2> MSMC-IM_!{params.run_name}_!{qpop}_!{tpop}_n!{params.msmc2_num_haplotypes}.stderr > MSMC-IM_!{params.run_name}_!{qpop}_!{tpop}_n!{params.msmc2_num_haplotypes}.stdout
-   '''
-}
-
-process chimp {
-   tag "${pop}"
-
-   cpus params.chimp_cpus
-   memory { params.chimp_mem.plus(1).plus(task.attempt.minus(1).multiply(32))+' GB' }
-   time { task.attempt >= 2 ? '120h' : params.chimp_timeout }
-   errorStrategy { task.exitStatus in 134..140 ? 'retry' : 'terminate' }
-   maxRetries 1
-
-   publishDir path: "${params.output_dir}/logs", mode: 'copy', pattern: '*.std{err,out}'
-   publishDir path: "${params.output_dir}/CHIMP", mode: 'copy', pattern: '*.{csv,param}'
-
-   input:
-   tuple val(pop), path(vcfs), path(tbis), path(refs), path(ancs) from chimp_vcfs.map({ [ it[1], it[0], it[2], it[3] ] })
-      .combine(refs.join(ancs, by: 0, failOnDuplicate: true, failOnMismatch: true), by: 0)
-      .map({ [ it[1], it[2], it[3], it[4], it[5] ] })
-      .groupTuple(by: 0)
-
-   output:
-   tuple path("CHIMP_autosomes_${pop}.stderr"), path("CHIMP_autosomes_${pop}.stdout") into chimp_logs
-   tuple val(pop), path("CHIMP_autosomes_${pop}.csv"), path("CHIMP_autosomes_${pop}.param") into chimp_outputs
-
-   shell:
-   ref_list = refs.join("\n")
-   anc_list = ancs.join("\n")
-   vcf_list = vcfs.join("\n")
-   chimp_retry_mem = params.chimp_mem.plus(task.attempt.minus(1).multiply(32))
-   '''
-   module load !{params.mod_chimp}
-   #Generate sorted comma-separated lists for the per-chromosome inputs:
-   ref_cslist=$(printf "!{ref_list}\n" | sort -k1,1V | head -c-1 | tr "\n" ",")
-   anc_cslist=$(printf "!{anc_list}\n" | sort -k1,1V | head -c-1 | tr "\n" ",")
-   vcf_cslist=$(printf "!{vcf_list}\n" | sort -k1,1V | head -c-1 | tr "\n" ",")
-   #Run CHIMP with all the VCFs and corresponding ref and anc FASTAs:
-   params="--rec_rate=!{params.rec_rate} --mut_rate=!{params.mut_rate} --base_n=!{params.chimp_n_s}"
-   params="${params} --ref_list ${ref_cslist} --anc_list ${anc_cslist} --vcf_list ${vcf_cslist}"
-   java -Xmx!{chimp_retry_mem}g -jar ${CHIMP} ${params} --out_file CHIMP_autosomes_!{pop} 2> CHIMP_autosomes_!{pop}.stderr > CHIMP_autosomes_!{pop}.stdout
-   '''
-}
