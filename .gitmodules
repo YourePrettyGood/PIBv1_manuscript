@@ -4,3 +4,6 @@
 [submodule "Processing_Pipelines/gvcf_to_annotated_vcf_nextflow"]
 	path = Processing_Pipelines/gvcf_to_annotated_vcf_nextflow
 	url = git@github.com:YourePrettyGood/gvcf_to_annotated_vcf_nextflow.git
+[submodule "Processing_Pipelines/phase_final_vcf_nextflow"]
+	path = Processing_Pipelines/phase_final_vcf_nextflow
+	url = git@github.com:YourePrettyGood/phase_final_vcf_nextflow.git
