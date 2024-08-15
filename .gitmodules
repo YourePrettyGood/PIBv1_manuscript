@@ -1,0 +1,6 @@
+[submodule "Processing_Pipelines/fastq_to_gvcf_nextflow"]
+	path = Processing_Pipelines/fastq_to_gvcf_nextflow
+	url = git@github.com:YourePrettyGood/fastq_to_gvcf_nextflow.git
+[submodule "Processing_Pipelines/gvcf_to_annotated_vcf_nextflow"]
+	path = Processing_Pipelines/gvcf_to_annotated_vcf_nextflow
+	url = git@github.com:YourePrettyGood/gvcf_to_annotated_vcf_nextflow.git
