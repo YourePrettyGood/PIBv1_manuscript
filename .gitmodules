@@ -7,3 +7,6 @@
 [submodule "Processing_Pipelines/phase_final_vcf_nextflow"]
 	path = Processing_Pipelines/phase_final_vcf_nextflow
 	url = git@github.com:YourePrettyGood/phase_final_vcf_nextflow.git
+[submodule "Processing_Pipelines/low_depth_QC"]
+	path = Processing_Pipelines/low_depth_QC
+	url = git@github.com:YourePrettyGood/low_depth_QC.git
