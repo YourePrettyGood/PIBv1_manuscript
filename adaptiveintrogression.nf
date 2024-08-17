@@ -139,10 +139,22 @@ params.tractmap_cpus = 1
 params.tractmap_mem = 1
 params.tractmap_timeout = '1h'
 
+//Detection mechanism for "chr" prefixes of autosomes:
+has_chr_prefix = params.autosomes.count('chr') > 0
+autosome_list = params.autosomes
+autosome_num_list = has_chr_prefix ? params.autosomes.replaceAll('chr', '') : autosome_list
+Map autosome_map = [params.autosomes.replaceAll('chr', '').tokenize(','), params.autosomes.tokenize(',')]
+   .transpose()
+   .collectEntries()
+//This is necessary for the awk script that preprocesses
+// the annotation GFF3, as the GENCODE liftover annotations
+// have chr prefixes but hs37d5/GRCh37 does not:
+keepchr = has_chr_prefix ? "1" : "0"
+
 //Preprocess the per-chromosome VCF channel to include the indices:
 perchrom_vcfs
    .join(perchrom_tbis, by: 0, failOnDuplicate: true, failOnMismatch: true)
-   .filter({ params.autosomes.tokenize(',').contains(it[0]) })
+   .filter({ autosome_num_list.tokenize(',').contains(it[0]) })
    .tap { perchrom_vcfs_for_project }
    .tap { perchrom_vcfs_for_tractfreqs }
    .set { perchrom_vcfs_r2 }
@@ -194,6 +206,7 @@ process calc_ld {
    tuple val(pop), path("${pop}_chr${chrom}_Sprime_${origin}_${params.r2_type}ld_r${params.min_r2}_core_haplotypes.tsv.gz") into calc_ld_output
 
    shell:
+   chrid = autosome_map[chrom]
    '''
    module load !{params.mod_bcftools}
    module load !{params.mod_vcftools}
@@ -204,7 +217,7 @@ process calc_ld {
    !{projectDir}/HumanPopGenScripts/selectSubsamples.awk -v "idcol=!{params.id_colname}" -v "selectcol=!{params.r2_colname}" -v "select=${superpop}" !{metadata} | \
       !{projectDir}/HumanPopGenScripts/excludeSamples.awk !{excluded_samples} - > !{pop}_superpop_samples.tsv
    #Pull out the archaic-matching S' sites and calculate pairwise r^2:
-   awk -v "chrom=!{chrom}" '\$1==chrom' !{sites} > !{origin}_sites.tsv
+   awk -v "chrom=!{chrid}" '\$1==chrom' !{sites} > !{origin}_sites.tsv
    if [[ -s "!{pop}_superpop_samples.tsv" ]] && [[ -s "!{origin}_sites.tsv" ]]; then
       bcftools view -R !{origin}_sites.tsv -T !{origin}_sites.tsv -S !{pop}_superpop_samples.tsv -a -Ov !{vcf} 2> bcftools_view_!{pop}_chr!{chrom}_!{origin}.stderr | \
          vcftools --vcf - --out !{pop}_chr!{chrom}_!{origin}_LD_trimalt --!{params.r2_type}-r2 --min-r2 !{params.min_r2} 2> vcftools_!{pop}_chr!{chrom}_!{params.r2_type}ld_r!{params.min_r2}_!{origin}.stderr > vcftools_!{pop}_chr!{chrom}_!{params.r2_type}ld_r!{params.min_r2}_!{origin}.stdout
@@ -212,7 +225,7 @@ process calc_ld {
       !{projectDir}/HumanPopGenScripts/Sprime/extract_arcmatch_tag_SNPs_Rsquared.awk -v "source=vcftools" !{origin}_sites.tsv !{pop}_chr!{chrom}_!{origin}_LD_trimalt.!{params.r2_type}.ld > !{pop}_chr!{chrom}_!{origin}_!{params.r2_type}ld_r!{params.min_r2}_rsquared.tsv
       #Construct a graph from these r^2 edges and identify core haplotypes as
       # connected components of the graph, outputting a labeled list of sites:
-      !{projectDir}/HumanPopGenScripts/Sprime/LD_connected_components.R !{pop}_chr!{chrom}_!{origin}_!{params.r2_type}ld_r!{params.min_r2}_rsquared.tsv !{pop}_chr!{chrom}_Sprime_!{origin}_!{params.r2_type}ld_r!{params.min_r2}_core_haplotypes.tsv.gz !{chrom}
+      !{projectDir}/HumanPopGenScripts/Sprime/LD_connected_components.R !{pop}_chr!{chrom}_!{origin}_!{params.r2_type}ld_r!{params.min_r2}_rsquared.tsv !{pop}_chr!{chrom}_Sprime_!{origin}_!{params.r2_type}ld_r!{params.min_r2}_core_haplotypes.tsv.gz !{chrid}
    else
      #Catch the case where no sites or samples are found and just pass through
      # a blank core haplotypes file plus logs indicating skipping the above steps:
@@ -313,13 +326,14 @@ process corehaps_project {
    tuple val(pop), path("${pop}_chr${chrom}_Sprime_corehaps_perSample.bed") into corehaps_project_BEDs
 
    shell:
+   chrid = autosome_map[chrom]
    '''
    module load !{params.mod_bcftools}
    #Identify the samples for this population:
    !{projectDir}/HumanPopGenScripts/selectSubsamples.awk -v "idcol=!{params.id_colname}" -v "selectcol=!{params.sprime_target_colname}" -v "select=!{pop}" !{metadata} | \
       !{projectDir}/HumanPopGenScripts/excludeSamples.awk !{excluded_samples} - > !{pop}_pop_samples.tsv
    #Project Sprime alleles onto each individual to identify tracts from genotypes:
-   bcftools query -f '%CHROM:%POS[\t%GT]\n' -r !{chrom} -H -S !{pop}_pop_samples.tsv !{vcf} | \
+   bcftools query -f '%CHROM:%POS[\t%GT]\n' -r !{chrid} -H -S !{pop}_pop_samples.tsv !{vcf} | \
          !{projectDir}/HumanPopGenScripts/Sprime/SprimePerSampleTracts.awk !{corehapscores} - | \
          !{projectDir}/HumanPopGenScripts/Sprime/SprimeTractBED.awk | \
          sort -k1,1V -k2,2n -k3,3n > !{pop}_chr!{chrom}_Sprime_corehaps_perSample.bed
@@ -345,13 +359,14 @@ process corehaps_tractfreqs {
    tuple val(pop), val(chrom), path("${pop}_chr${chrom}_Sprime_${pop}_corehap_freqs.tsv.gz") into corehaps_tract_freqs_for_genes,corehaps_tract_freqs_for_cat
 
    shell:
+   chrid = autosome_map[chrom]
    '''
    module load !{params.mod_bcftools}
    #Identify the samples for this population:
    !{projectDir}/HumanPopGenScripts/selectSubsamples.awk -v "idcol=!{params.id_colname}" -v "selectcol=!{params.sprime_target_colname}" -v "select=!{pop}" !{metadata} | \
       !{projectDir}/HumanPopGenScripts/excludeSamples.awk !{excluded_samples} - > !{pop}_pop_samples.tsv
    #Calculate the median Sprime allele frequency for each tract:
-   bcftools query -f '%CHROM:%POS[\t%GT]\n' -r !{chrom} -H -S !{pop}_pop_samples.tsv !{vcf} | \
+   bcftools query -f '%CHROM:%POS[\t%GT]\n' -r !{chrid} -H -S !{pop}_pop_samples.tsv !{vcf} | \
       !{projectDir}/HumanPopGenScripts/Sprime/SprimeArchaicAF.awk -v "spop=!{pop}" -v "pop=!{pop}" -v "all=1" !{corehapscores} - | \
       !{projectDir}/HumanPopGenScripts/Sprime/SprimeTractMedianAF.awk | \
       gzip -9 > !{pop}_chr!{chrom}_Sprime_!{pop}_corehap_freqs.tsv.gz
@@ -375,6 +390,7 @@ process corehaps_genes {
    tuple val(pop), path("${pop}_chr${chrom}_Sprime_corehaps_gene_lists.tcsv.gz"), path("${pop}_chr${chrom}_Sprime_corehaps_gene_name_lists.tcsv.gz") into corehaps_gene_lists
 
    shell:
+   chrid = autosome_map[chrom]
    '''
    module load !{params.mod_bedtools}
    #Identify genes overlapping Sprime tracts:
@@ -383,7 +399,7 @@ process corehaps_genes {
          awk 'BEGIN{FS="\t";OFS=FS;}{print $1, $2, $3, "TractID="$4";AAF="$6, ".", "+";}' | \
          sort -k1,1 -k2,2n -k3,3n) \
       -b <(gzip -dc !{annotation_gff} | \
-         awk -v "keepchr=0" -v "chrom=!{chrom}" 'BEGIN{FS="\t";OFS=FS;if (length(keepchr) == 0) {keepchr=0;};}/^#/{print;}!/^#/{if (!keepchr) {sub("chr", "", $1);}; if ($1 == chrom) {print $0;};}') \
+         awk -v "keepchr=!{keepchr}" -v "chrom=!{chrid}" 'BEGIN{FS="\t";OFS=FS;if (length(keepchr) == 0) {keepchr=0;};}/^#/{print;}!/^#/{if (!keepchr) {sub("chr", "", $1);}; if ($1 == chrom) {print $0;};}') \
       -wao | \
       tee >(!{projectDir}/HumanPopGenScripts/Sprime/SprimeTractGeneList.awk -v "trim=1" -v "tag=gene_name" | \
          sort -k1,1V -k2,2n -k3,3n | \
@@ -424,7 +440,7 @@ process cat_outs {
    shell:
    '''
    #Set the array of chromosomes to iterate over:
-   IFS="," read -a chroms <<< "!{params.autosomes}"
+   IFS="," read -a chroms <<< "!{autosome_num_list}"
    #Symlink the many input files to avoid SLURM SBATCH script size limits:
    cat projection_paths.tsv tractfreq_paths.tsv genelist_paths.tsv | \
       while IFS=$'\t' read -a a;
@@ -438,7 +454,7 @@ process cat_outs {
       do
       !{projectDir}/HumanPopGenScripts/selectSubsamples.awk -v "idcol=!{params.id_colname}" -v "selectcol=!{params.sprime_target_colname}" -v "select=${p}" !{metadata} | \
          !{projectDir}/HumanPopGenScripts/excludeSamples.awk !{excluded_samples} - | \
-         !{projectDir}/HumanPopGenScripts/Sprime/SprimeTractBEDtoLengths.awk -v "header=${header}" -v "pop=${p}" - ${p}_chr{!{params.autosomes}}_Sprime_corehaps_perSample.bed;
+         !{projectDir}/HumanPopGenScripts/Sprime/SprimeTractBEDtoLengths.awk -v "header=${header}" -v "pop=${p}" - ${p}_chr{!{autosome_num_list}}_Sprime_corehaps_perSample.bed;
       header="";
    done < !{targetpops} | \
       gzip -9 > !{params.run_name}_Sprime_perChrom_perIndiv_perPop_corehap_lengths.tsv.gz
@@ -467,7 +483,7 @@ process cat_outs {
          printf "Chromosome\tStart\tEnd\tTractID\tOverlappingGenes\n"
          header=""
       fi
-      gzip -dc ${p}_chr{!{params.autosomes}}_Sprime_corehaps_gene_name_lists.tcsv.gz;
+      gzip -dc ${p}_chr{!{autosome_num_list}}_Sprime_corehaps_gene_name_lists.tcsv.gz;
       header="";
    done < !{targetpops} | \
       gzip -9 > !{params.run_name}_Sprime_corehaps_gene_name_lists.tcsv.gz
@@ -480,7 +496,7 @@ process cat_outs {
          printf "Chromosome\tStart\tEnd\tTractID\tOverlappingGenes\n"
          header=""
       fi
-      gzip -dc ${p}_chr{!{params.autosomes}}_Sprime_corehaps_gene_lists.tcsv.gz;
+      gzip -dc ${p}_chr{!{autosome_num_list}}_Sprime_corehaps_gene_lists.tcsv.gz;
       header="";
    done < !{targetpops} | \
       gzip -9 > !{params.run_name}_Sprime_corehaps_gene_lists.tcsv.gz
@@ -558,13 +574,14 @@ process hap_project {
    tuple val(pop), path("${pop}_chr${chrom}_Sprime_tracts_perSample_haplotypes.bed") into haps_project_BEDs
 
    shell:
+   chrid = autosome_map[chrom]
    '''
    module load !{params.mod_bcftools}
    #Identify the samples for this population:
    !{projectDir}/HumanPopGenScripts/selectSubsamples.awk -v "idcol=!{params.id_colname}" -v "selectcol=!{params.sprime_target_colname}" -v "select=!{pop}" !{metadata} | \
       !{projectDir}/HumanPopGenScripts/excludeSamples.awk !{excluded_samples} - > !{pop}_pop_samples.tsv
    #Project Sprime alleles onto each individual to identify tracts from genotypes:
-   bcftools query -f '%CHROM:%POS[\t%GT]\n' -r !{chrom} -H -S !{pop}_pop_samples.tsv !{vcf} | \
+   bcftools query -f '%CHROM:%POS[\t%GT]\n' -r !{chrid} -H -S !{pop}_pop_samples.tsv !{vcf} | \
          !{projectDir}/HumanPopGenScripts/Sprime/SprimePerSampleTracts.awk -v "phased=1" !{matches} - | \
          !{projectDir}/HumanPopGenScripts/Sprime/SprimeTractBED.awk -v "phased=1" | \
          sort -k1,1V -k2,2n -k3,3n > !{pop}_chr!{chrom}_Sprime_tracts_perSample_haplotypes.bed
