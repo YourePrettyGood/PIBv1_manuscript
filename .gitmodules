@@ -10,3 +10,6 @@
 [submodule "Processing_Pipelines/low_depth_QC"]
 	path = Processing_Pipelines/low_depth_QC
 	url = git@github.com:YourePrettyGood/low_depth_QC.git
+[submodule "Analysis_Pipelines/HumanPopGenScripts"]
+        path = Analysis_Pipelines/HumanPopGenScripts
+        url = git@github.com:YourePrettyGood/HumanPopGenScripts.git
