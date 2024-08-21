@@ -1,0 +1,14 @@
+#%Module1.0#######################################################################
+set software "haplogrep"
+set softwaredir "/home/pfr8/bin/haplogrep-cmd"
+set version "2.4.0"
+
+proc ModulesHelp { } {
+	global version
+
+	puts stderr "\tThis module loads ${software} version ${version}."
+}
+
+module-whatis	"Loads ${software} version ${version}"
+
+prepend-path PATH ${softwaredir}/${version}

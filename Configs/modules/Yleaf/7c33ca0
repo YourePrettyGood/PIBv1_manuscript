@@ -1,0 +1,17 @@
+#%Module1.0#######################################################################
+set software "Yleaf"
+set softwaredir "/home/pfr8/bin"
+set version "7c33ca0"
+
+proc ModulesHelp { } {
+	global version
+
+	puts stderr "\tThis module loads ${software} version ${version}."
+}
+
+module-whatis	"Loads ${software} version ${version}"
+
+module load samtools/af811a6
+module load Python/3.8.6-GCCcore-10.2.0
+prepend-path PATH ${softwaredir}/${software}
+setenv YLEAF ${softwaredir}/${software}/Yleaf.py

@@ -1,0 +1,18 @@
+#%Module1.0#####################################################################
+##
+set software "AdapterRemoval"
+set lcsoftware "adapterremoval"
+set version "5e6f885"
+#AdapterRemoval 5e6f885 is latest commit from Github as of 2021/12/23
+
+proc ModulesHelp { } {
+        global version
+
+        puts stderr "\tThis module loads ${software} version ${version}."
+}
+
+module-whatis	"Loads ${software} version ${version}"
+
+set prefix "/home/pfr8/bin/${lcsoftware}"
+prepend-path PATH ${prefix}/bin
+prepend-path MANPATH ${prefix}/share/man

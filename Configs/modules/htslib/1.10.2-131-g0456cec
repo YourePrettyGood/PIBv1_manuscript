@@ -1,0 +1,17 @@
+#%Module1.0#####################################################################
+##
+set software "htslib"
+set version "1.10.2-131-g0456cec"
+#1.10.2-131-g0456cec is latest from Github as of 2020/08/24, commit 0456cec
+
+proc ModulesHelp { } {
+        global version
+
+        puts stderr "\tThis module loads ${software} version ${version}."
+}
+
+module-whatis	"Loads ${software} version ${version}"
+
+set prefix "/home/pfr8/bin/${software}"
+prepend-path PATH ${prefix}/bin
+prepend-path MANPATH ${prefix}/share/man

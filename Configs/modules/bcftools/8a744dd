@@ -1,0 +1,16 @@
+#%Module1.0#######################################################################
+set software "bcftools"
+set softwaredir "/home/pfr8/bin"
+set version "8a744dd"
+#Git commit 8a744dd latest commit as of 2021/01/05
+
+proc ModulesHelp { } {
+	global version
+
+	puts stderr "\tThis module loads ${software} version ${version}."
+}
+
+module-whatis	"Loads ${software} version ${version}"
+
+prepend-path MANPATH ${softwaredir}/${software}/share/man
+prepend-path PATH ${softwaredir}/${software}

@@ -1,0 +1,20 @@
+#%Module1.0#####################################################################
+##
+set software "bcftools"
+set version "1.10.2-119-g42942b4"
+#1.10.2-119-g42942b4 is latest from Github as of 2020/08/24, commit 42942b4
+
+proc ModulesHelp { } {
+        global version
+
+        puts stderr "\tThis module loads ${software} version ${version}."
+}
+
+module-whatis	"Loads ${software} version ${version}"
+
+#Load HTSlib?
+#module load htslib/1.10.2-131-g0456cec
+
+set prefix "/home/pfr8/bin/${software}"
+prepend-path PATH ${prefix}/bin
+prepend-path MANPATH ${prefix}/share/man

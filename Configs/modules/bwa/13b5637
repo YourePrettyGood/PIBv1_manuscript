@@ -1,0 +1,16 @@
+#%Module1.0#######################################################################
+set software "bwa"
+set softwaredir "/home/pfr8/bin"
+set version "13b5637"
+#Git commit 13b5637 latest commit as of sometime in 2020
+
+proc ModulesHelp { } {
+	global version
+
+	puts stderr "\tThis module loads ${software} version ${version}."
+}
+
+module-whatis	"Loads ${software} version ${version}"
+
+prepend-path MANPATH ${softwaredir}/${software}
+prepend-path PATH ${softwaredir}/${software}

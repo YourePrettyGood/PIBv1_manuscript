@@ -1,0 +1,17 @@
+#%Module1.0#####################################################################
+##
+set software "dedup_merged_BAMs"
+set lcsoftware "dedup_merged_bams"
+set version "0.1.4"
+#0.1.4 is my testing release 2022/05/19 with two-pass algorithm as default
+
+proc ModulesHelp { } {
+        global version
+
+        puts stderr "\tThis module loads ${software} version ${version}."
+}
+
+module-whatis   "Loads ${software} version ${version}"
+
+set prefix "/gpfs/gibbs/pi/tucci/pfr8/bin/${software}/target/release"
+prepend-path PATH ${prefix}/${version}

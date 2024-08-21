@@ -1,0 +1,16 @@
+#%Module1.0#######################################################################
+set software "AdapterRemoval"
+set lcsoftware "adapterremoval"
+set softwaredir "/home/pfr8/bin"
+set version "5bb3b65"
+
+proc ModulesHelp { } {
+	global version
+
+	puts stderr "\tThis module loads ${software} version ${version}."
+}
+
+module-whatis	"Loads ${software} version ${version}"
+
+prepend-path PATH ${softwaredir}/${lcsoftware}/bin
+prepend-path MANPATH ${softwaredir}/${lcsoftware}/share/man

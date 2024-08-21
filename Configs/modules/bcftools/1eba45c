@@ -1,0 +1,19 @@
+#%Module1.0#######################################################################
+set software "bcftools"
+set softwaredir "/home/pfr8/bin"
+set version "1eba45c"
+#Git commit 1eba45c latest commit as of 2022/09/19
+
+proc ModulesHelp { } {
+	global version
+
+	puts stderr "\tThis module loads ${software} version ${version}."
+}
+
+module-whatis	"Loads ${software} version ${version}"
+
+module load GSL/2.6-GCC-10.2.0
+
+set prefix ${softwaredir}/${software}-${version}/${software}
+prepend-path MANPATH ${prefix}/share/man
+prepend-path PATH ${prefix}

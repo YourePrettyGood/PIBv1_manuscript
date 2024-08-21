@@ -1,0 +1,15 @@
+#%Module1.0#######################################################################
+set software "mutserve"
+set softwaredir "/home/pfr8/bin"
+set version "2.0.0-rc12"
+
+proc ModulesHelp { } {
+	global version
+
+	puts stderr "\tThis module loads ${software} version ${version}."
+}
+
+module-whatis	"Loads ${software} version ${version}"
+
+prepend-path PATH ${softwaredir}/${software}/${version}
+setenv RCRS ${softwaredir}/${software}/${version}/rCRS.fasta
