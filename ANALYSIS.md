@@ -8,10 +8,10 @@
   - [Mappability50](#mappability50)
   - [ROH](#roh)
 - [Geographic distribution of genetic variation](#geographic-distribution-of-genetic-variation)
-  - Novel vs. known variation using dbSNP, 1kGP, and gnomAD
-  - Region- or population-specific genetic variation
+  - [Novel vs. known variation using dbSNP, 1kGP, and gnomAD](#novel-variants)
+  - [Region- or population-specific genetic variation](#population-specific-variants)
 - [Population structure analysis](#population-structure-analysis)
-  - Principal components analysis (PCA)
+  - [Principal components analysis (PCA)](#principal-components-analysis-pca)
   - [ADMIXTURE](#admixture)
   - Outgroup f<sub>3</sub>
   - Neighbour-Joining tree from pairwise F<sub>ST</sub>
@@ -19,7 +19,7 @@
   - f<sub>4</sub> statistics
 - [Demographic inference](#demographic-inference)
   - Runs of Homozygosity (ROH) analysis
-  - SMC++
+  - [SMC++](#smc)
 - [Archaic introgression](#archaic-introgression)
   - [PCA projection](#pca-projection)
   - [D statistics](#d-statistics)
@@ -433,14 +433,15 @@ as well as the subsequent composite likelihood runs of SMC++ were implemented
 in the Nextflow pipeline [`smcpp.nf`](/Analysis_Pipelines/smcpp.nf). The config
 used can be found [here](/Configs/Used/SMCpp/PIBv1_smcpp.config).
 
-One note: The config was for a previous version of the `smcpp.nf` pipeline that
-simultaneously ran MSMC2 and CHIMP on the same data (though with bugs in the
-MSMC2 pipeline). The `smcpp.nf` pipeline found in this repository contains the
-same SMC++ steps as the previous pipeline, but the MSMC2 and CHIMP sections
-have been refactored out. The `msmc2.nf` pipeline found here is a result of
-that refactoring, though with bugs fixed and extended to two-population runs
-for cross-coalescence rate analysis as well as MSMC-IM. Neither the MSMC2 nor
-CHIMP results are included in the current draft of the manuscript.
+> [!NOTE]
+> The config was for a previous version of the `smcpp.nf` pipeline that
+> simultaneously ran MSMC2 and CHIMP on the same data (though with bugs in the
+> MSMC2 pipeline). The `smcpp.nf` pipeline found in this repository contains the
+> same SMC++ steps as the previous pipeline, but the MSMC2 and CHIMP sections
+> have been refactored out. The `msmc2.nf` pipeline found here is a result of
+> that refactoring, though with bugs fixed and extended to two-population runs
+> for cross-coalescence rate analysis as well as MSMC-IM. Neither the MSMC2 nor
+> CHIMP results are included in the current draft of the manuscript.
 
 Dependencies used:
 
@@ -601,6 +602,14 @@ and identify a set of "core haplotypes" that consist of Sprime alleles from
 the same archaic origin that are in strong LD. This process is performed in a
 [separate pipeline below](#core-haplotypes).
 
+> [!IMPORTANT]
+> We performed a bit of post-processing to filter and summarize the tracts
+> and [core haplotypes](#core-haplotypes) in BED format using the script
+> [`PIBv1_Sprime_BEDgeneration_20230309.R`](/Analysis_Pipelines/PIBv1_Sprime_BEDgeneration_20230309.R).
+> The resulting BEDs were used as inputs for other analyses including the
+> [archaic coverage](#archaic-coverage) analysis below as well as the
+> [adaptive introgression](#selection-and-adaptive-introgression) section.
+
 Dependencies used:
 
 - bcftools commit 1eba45c
@@ -671,7 +680,130 @@ Dependencies used:
 
 #### Archaic coverage
 
+While the amount of archaic introgressed DNA found in any given individual in a
+population can be informative, one can also look at the total amount of the
+genome that is covered by archaic introgressed DNA across individuals in a
+population. In a sense, this can be interpreted as the amount of the archaic
+hominin genome that can be [reconstructed](https://doi.org/10.1126/science.aad9416)
+from modern human genomes. If you're familiar with genomics, this can also be
+understood as the difference between measuring the "depth" of archaic
+introgression (in the sense of the average per-individual probability of that
+region being of archaic origin) versus the "coverage" of archaic introgression
+(in the sense of the amount of the human genome "covered" by archaic
+introgressed sequence). The contrast between these two measures and the impact
+on the distribution of archaic genetic variants among modern human populations
+is nicely laid out in [Witt et al. 2022](https://doi.org/10.1098/rstb.2020.0411).
+Comparing these two measures can also lead to inferences about the evolutionary
+and population histories of different populations.
 
+Although it can be informative to use a rarefaction/subsampling approach to
+calculating archaic coverage (as demonstrated by Witt et al. 2022), we only
+calculated archaic coverage for the full sample for each population. We took
+the [haplotype/phased projections](#phased-projections) from the previous
+section, partitioned them by population or major geographic region, filtered
+for only projections from Sprime tracts passing match rate thresholds, and then
+took the union of introgressed intervals with `bedtools merge`. The resulting
+tiling paths then had lengths summed to come up with the final results in
+supplementary table S7 (rounded to the nearest 0.1 Mbp). The code used to
+perform this is found below. We also have a secondary estimate using the Sprime
+tracts instead of phased projections. These estimates only slightly differ,
+as the phased projection-based estimates are slightly conservative.
+
+```bash
+module load bedtools/b891a0b
+
+#Summarize archaic coverage by archaic origin for all samples together:
+h="1"
+for o in "Ambiguous" "Denisovan" "Neandertal";
+   do
+   cat {MDE,EUR,CSA,AMR,EAS,ISEA,OCN}_pops.txt | while read p;
+      do
+      cat ../Sprime/${p}_chr{1..22}_Sprime_phased_tracts_perSample_maxgap1000000.bed;
+   done | \
+      [path to scripts]/HumanPopGenScripts/Sprime/filterTractProjections.awk [path to final Sprime BEDs]/PIBv1_${o}_Sprime_tracts_noVanuatu_MRfilter_wGeneList.bed - | \
+      sort -k1,1V -k2,2n -k3,3n | \
+      bedtools merge -i - | \
+      [path to scripts]/HumanPopGenScripts/Sprime/tractSummary.awk -v "header=${h}" -v "origin=${o}" -v "region=All";
+   h="";
+done >> PIBv1_total_Sprime_path_length_fromProjections_maxgap1000000.tsv
+#Now by region:
+h="1"
+for o in "Ambiguous" "Denisovan" "Neandertal";
+   do
+   for r in "MDE" "EUR" "CSA" "AMR" "EAS" "ISEA" "OCN" "nonOCN";
+      do
+      cat ${r}_pops.txt | while read p;
+         do
+         cat ../Sprime/${p}_chr{1..22}_Sprime_phased_tracts_perSample_maxgap1000000.bed;
+      done | \
+         [path to scripts]/HumanPopGenScripts/Sprime/filterTractProjections.awk [path to final Sprime BEDs]/PIBv1_${o}_Sprime_tracts_noVanuatu_MRfilter_wGeneList.bed - | \
+         sort -k1,1V -k2,2n -k3,3n | \
+         bedtools merge -i - | \
+         [path to scripts]/HumanPopGenScripts/Sprime/tractSummary.awk -v "header=${h}" -v "origin=${o}" -v "region=${r}";
+      h="";
+   done;
+done > PIBv1_perRegion_Sprime_path_length_fromProjections_maxgap1000000.tsv
+#And per population:
+h="1"
+for o in "Ambiguous" "Denisovan" "Neandertal";
+   do
+   cat ../../PIBv1_Sprime_target_populations.txt | while read p;
+      do
+      cat ../Sprime/${p}_chr{1..22}_Sprime_phased_tracts_perSample_maxgap1000000.bed | \
+         [path to scripts]/HumanPopGenScripts/Sprime/filterTractProjections.awk [path to final Sprime BEDs]/PIBv1_${o}_Sprime_tracts_noVanuatu_MRfilter_wGeneList.bed - | \
+         sort -k1,1V -k2,2n -k3,3n | \
+         bedtools merge -i - | \
+         [path to scripts]/HumanPopGenScripts/Sprime/tractSummary.awk -v "header=${h}" -v "origin=${o}" -v "pop=${p}";
+      h="";
+   done;
+   h="";
+done > PIBv1_perPop_Sprime_path_length_fromProjections_maxgap1000000.tsv
+
+#If you want the summary based on Sprime tracts instead of phased projections:
+#All samples together:
+h="1"
+for o in "Ambiguous" "Denisovan" "Neandertal";
+   do
+   cat {MDE,EUR,CSA,AMR,EAS,ISEA,OCN}_pops.txt | while read p;
+      do
+      [path to scripts]/HumanPopGenScripts/Sprime/selectSprimeTracts.awk -v "keycol=SprimePopulation" -v "key=${p}" [path to final Sprime BEDs]/PIBv1_${o}_Sprime_tracts_noVanuatu_MRfilter_wGeneList.bed;
+   done | \
+      sort -k1,1V -k2,2n -k3,3n | \
+      bedtools merge -i - | \
+      [path to scripts]/HumanPopGenScripts/Sprime/tractSummary.awk -v "header=${h}" -v "origin=${o}" -v "region=All";
+   h="";
+done > PIBv1_total_Sprime_path_length_fromTracts.tsv
+#Per major geographic region:
+h="1"
+for o in "Ambiguous" "Denisovan" "Neandertal";
+   do
+   for r in "MDE" "EUR" "CSA" "AMR" "EAS" "ISEA" "OCN" "nonOCN";
+      do
+      cat ${r}_pops.txt | while read p;
+         do
+         [path to scripts]/HumanPopGenScripts/Sprime/selectSprimeTracts.awk -v "keycol=SprimePopulation" -v "key=${p}" [path to final Sprime BEDs]/PIBv1_${o}_Sprime_tracts_noVanuatu_MRfilter_wGeneList.bed;
+      done | \
+         sort -k1,1V -k2,2n -k3,3n | \
+         bedtools merge -i - | \
+         [path to scripts]/HumanPopGenScripts/Sprime/tractSummary.awk -v "header=${h}" -v "origin=${o}" -v "region=${r}";
+      h="";
+   done;
+done > PIBv1_perRegion_Sprime_path_length_fromTracts.tsv
+#Per population:
+h="1"
+for o in "Ambiguous" "Denisovan" "Neandertal";
+   do
+   cat ../../PIBv1_Sprime_target_populations.txt | while read p;
+      do
+      [path to scripts/HumanPopGenScripts/Sprime/selectSprimeTracts.awk -v "keycol=SprimePopulation" -v "key=${p}" [path to final Sprime BEDs]/PIBv1_${o}_Sprime_tracts_noVanuatu_MRfilter_wGeneList.bed | \
+         sort -k1,1V -k2,2n -k3,3n | \
+         bedtools merge -i - | \
+         [path to scripts]/HumanPopGenScripts/Sprime/tractSummary.awk -v "header=${h}" -v "origin=${o}" -v "pop=${p}";
+      h="";
+   done;
+   h="";
+done > PIBv1_perPop_Sprime_path_length_fromTracts.tsv
+```
 
 #### Match rate mixture models
 
