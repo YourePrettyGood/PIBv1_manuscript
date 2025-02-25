@@ -29,6 +29,7 @@
     - [Archaic coverage](#archaic-coverage)
     - [Match rate mixture models](#match-rate-mixture-models)
     - [Core haplotypes](#core-haplotypes)
+    - [Archaic deserts](#archaic-deserts)
 - [Selection and adaptive introgression](#selection-and-adaptive-introgression)
 - [Functional annotation](#functional-annotation)
 - [Massively Parallel Reporter Assay](#massively-parallel-reporter-assay)
@@ -658,8 +659,13 @@ Thus, `params.tract_max_gap` is the maximum number of consecutive modern
 alleles allowed without splitting a projection. For the analyses in the
 manuscript such as the total amount of introgression (or classified
 introgression) per individual and the [archaic coverage analysis](#archaic-coverage)
-below, we set this parameter to a large value (1000000), although varying this
-parameter had a fairly small impact on these analyses.
+below, we set this parameter to 0. We originally set this parameter to a
+large value (1000000) under the assumption that switches from archaic to
+modern and back to archaic ancestry in a short span should be rare, and
+had run with both parameter values to compare. Varying the parameter has
+a small impact on the [archaic coverage analysis](#archaic-coverage), but
+a noticeable impact on per individual introgression values and the pattern
+of introgression levels with New Guinean ancestry.
 
 This parameter had a larger effect on some unpublished preliminary analyses
 when we were looking at inferring introgression waves and the times of those
@@ -673,6 +679,15 @@ algorithm being biased toward older time estimates by an excess of short
 tracts. To a first approximation, MultiWaver3.1 fits a mixture model of
 exponentials, but this is a very difficult problem that runs into issues of
 identifiability quickly, so we did not proceed further with this analysis.
+
+However, the results of this and a much later comparative analysis with
+[hmmix](https://github.com/LauritsSkov/Introgression-detection) indicated
+that `params.tract_max_gap=0` should be preferred due to greater consistency
+between methods in the inferred relationship between archaic (and especially
+Denisovan) introgression and New Guinean ancestry. This does raise an
+interesting question about why there is population heterogeneity in the
+effect of this max gap parameter (e.g. why are ancestry switches more closely
+spaced in some populations than others?)
 
 Dependencies used:
 
@@ -718,14 +733,14 @@ for o in "Ambiguous" "Denisovan" "Neandertal";
    do
    cat {MDE,EUR,CSA,AMR,EAS,ISEA,OCN}_pops.txt | while read p;
       do
-      cat ../Sprime/${p}_chr{1..22}_Sprime_phased_tracts_perSample_maxgap1000000.bed;
+      cat ../Sprime/${p}_chr{1..22}_Sprime_phased_tracts_perSample_maxgap0.bed;
    done | \
       [path to scripts]/HumanPopGenScripts/Sprime/filterTractProjections.awk [path to final Sprime BEDs]/PIBv1_${o}_Sprime_tracts_noVanuatu_MRfilter_wGeneList.bed - | \
       sort -k1,1V -k2,2n -k3,3n | \
       bedtools merge -i - | \
       [path to scripts]/HumanPopGenScripts/Sprime/tractSummary.awk -v "header=${h}" -v "origin=${o}" -v "region=All";
    h="";
-done >> PIBv1_total_Sprime_path_length_fromProjections_maxgap1000000.tsv
+done >> PIBv1_total_Sprime_path_length_fromProjections_maxgap0.tsv
 #Now by region:
 h="1"
 for o in "Ambiguous" "Denisovan" "Neandertal";
@@ -734,7 +749,7 @@ for o in "Ambiguous" "Denisovan" "Neandertal";
       do
       cat ${r}_pops.txt | while read p;
          do
-         cat ../Sprime/${p}_chr{1..22}_Sprime_phased_tracts_perSample_maxgap1000000.bed;
+         cat ../Sprime/${p}_chr{1..22}_Sprime_phased_tracts_perSample_maxgap0.bed;
       done | \
          [path to scripts]/HumanPopGenScripts/Sprime/filterTractProjections.awk [path to final Sprime BEDs]/PIBv1_${o}_Sprime_tracts_noVanuatu_MRfilter_wGeneList.bed - | \
          sort -k1,1V -k2,2n -k3,3n | \
@@ -742,14 +757,14 @@ for o in "Ambiguous" "Denisovan" "Neandertal";
          [path to scripts]/HumanPopGenScripts/Sprime/tractSummary.awk -v "header=${h}" -v "origin=${o}" -v "region=${r}";
       h="";
    done;
-done > PIBv1_perRegion_Sprime_path_length_fromProjections_maxgap1000000.tsv
+done > PIBv1_perRegion_Sprime_path_length_fromProjections_maxgap0.tsv
 #And per population:
 h="1"
 for o in "Ambiguous" "Denisovan" "Neandertal";
    do
    cat ../../PIBv1_Sprime_target_populations.txt | while read p;
       do
-      cat ../Sprime/${p}_chr{1..22}_Sprime_phased_tracts_perSample_maxgap1000000.bed | \
+      cat ../Sprime/${p}_chr{1..22}_Sprime_phased_tracts_perSample_maxgap0.bed | \
          [path to scripts]/HumanPopGenScripts/Sprime/filterTractProjections.awk [path to final Sprime BEDs]/PIBv1_${o}_Sprime_tracts_noVanuatu_MRfilter_wGeneList.bed - | \
          sort -k1,1V -k2,2n -k3,3n | \
          bedtools merge -i - | \
@@ -757,7 +772,7 @@ for o in "Ambiguous" "Denisovan" "Neandertal";
       h="";
    done;
    h="";
-done > PIBv1_perPop_Sprime_path_length_fromProjections_maxgap1000000.tsv
+done > PIBv1_perPop_Sprime_path_length_fromProjections_maxgap0.tsv
 
 #If you want the summary based on Sprime tracts instead of phased projections:
 #All samples together:
@@ -804,6 +819,34 @@ for o in "Ambiguous" "Denisovan" "Neandertal";
    h="";
 done > PIBv1_perPop_Sprime_path_length_fromTracts.tsv
 ```
+
+As a simple metric for detecting reduced archaic coverage relative to
+expectation, we also computed a very naïve estimator of expected archaic
+coverage from the sum of phased projections across individuals. By analogy
+to the simple estimator of sequencing read coverage from sequencing read
+depth-of-coverage:
+
+```math
+E[C]=1-\exp(-\frac{NL}{G})
+```
+
+where $C$ is the coverage, $NL$ is the product of read count and length,
+and $G$ is the genome size, we estimate expected archaic coverage as:
+
+```math
+E[C_{arc}]=1-\exp(-\frac{\sum_{i,j} L_{i,j}}{G})
+```
+
+where $C_{arc}$ is the archaic coverage and $L_{i,j}$ is the length of
+projections of tract $j$ in individual $i$ from the population of interest.
+
+Observed archaic coverage will almost certainly be less than this estimate
+of expected archaic coverage, but the degree to which archaic coverage is
+reduced depends on a variety of factors including demographic factors like
+population bottlenecks and even the efficacy of purifying selection on
+archaic introgressed sequence. We observed that the five Oceanic populations
+with the strongest bottleneck signals had significantly reduced archaic
+coverage relative to expectation.
 
 #### Match rate mixture models
 
@@ -948,10 +991,91 @@ Dependencies used:
 - igraph 1.3.5
 - bedtools commit cc714eb
 
+#### Archaic deserts
+
+Documentation for this step is a work in progress, most of these analyses were
+performed by Stephen Rong.
+
+Identification of archaic deserts was performed using a combination of
+BEDtools commands and awk scripts. Specifically, we first merged all phased
+projections from all non-African individuals with `bedtools merge`, then
+took the autosome-wide complement using `bedtools complement` with the `-g`
+flag pointing to a `.genome` file of only the autosomes of hs37d5. We then
+subtracted out the masked regions of hs37d5 with `bedtools subtract`, and
+finally thresholded the resulting intervals absent of introgression to
+extract only those intervals of at least 1 Mbp using a custom awk script.
+Precise commands used can be found below:
+
+```bash
+#Merge all phased projections to get the set of introgressed regions:
+for m in "0" "1000000";
+   do
+   while read p;
+      do
+      cat projections/${p}_Sprime_{Ambiguous,Denisovan,Neandertal}_phased_tracts_perSample_maxgap${m}.bed | \
+         egrep -v "^#";
+   done < <(cat ../PIBv1_Sprime/phased_projections/tiling_paths/{AMR,CSA,EAS,EUR,ISEA,MDE,OCN}_pops.txt) | \
+      sort -k1,1V -k2,2n -k3,3n | \
+      bedtools merge -i - > projections/PIBv1_total_tiling_paths_maxgap${m}.bed;
+done
+#Take the autosome-wide complement and subtract the masked regions:
+for r in "hg19" "hs37d5";
+   do
+   for m in "0" "1000000";
+      do
+      bedtools complement -i projections/PIBv1_total_tiling_paths_maxgap${m}.bed -g <(head -n22 [path to ref]/${r}.genome) | \
+         bedtools subtract -a - -b [path to ref]/${r}_assembly_gaps.bed > projections/PIBv1_total_tiling_paths_complement_${r}unmasked_maxgap${m}.bed;
+   done
+done
+
+#Now extract only no-introgression intervals of at least 1 Mbp:
+#Ran this using both hg19 and hs37d5 masked regions and both maxgap
+# values to compare. There are no differences whatsoever in the results.
+for r in "hg19" "hs37d5";
+   do
+   for m in "0" "1000000";
+      do
+      awk 'BEGIN{FS="\t";OFS=FS;}{if ($3-$2 >= 1000000) {print;};}' projections/PIBv1_total_tiling_paths_complement_${r}unmasked_maxgap${m}.bed > deserts/PIBv1_archaic_deserts_${r}unmasked_maxgap${m}.bed;
+   done
+done
+```
+
+Dependencies used:
+
+- bedtools commit b891a0b
+
 ## Selection and adaptive introgression
 
 Documentation for this step is a work in progress, these analyses were performed
 by Daniela Tejada Martinez.
+
+In response to a reviewer comment, we compared the adaptive introgression
+candidate regions identified using our method with windows identified as
+adaptive introgression candidates using the U and Q95 statistics of
+[Racimo et al. 2017 MBE](https://doi.org/10.1093/molbev/msw216). Since we
+weren't able to find a reference implementation of these statistics, we
+re-implemented them as a Nextflow pipeline [RacimoUQ95.nf](/Analysis_Pipelines/RacimoUQ95.nf).
+In particular, we evaluated `U_{A,B,C,D}` and `Q95_{A,B,C,D}` for `A` as all
+HGDP African populations, `B` being one of 18 target Oceanic groups (we ran
+the Sepik and Goroka of New Guinea separately for simplicity), `C` being the
+Vindija Neanderthal, and `D` being the Altai Denisovan. We ran each group
+three times for the different combinations of `y` and `z` corresponding to
+different archaic origins: `(y,z)=(1,0)` for Neanderthal, `(y,z)=(0,1)` for
+Denisovan, and `(y,z)=(1,1)` for Ambiguous. We evaluated U and Q95 with
+`w=0.01` and U with `x=0.5`, following the main analyses of Racimo et al. 2017.
+We tested this pipeline using the 1000 Genomes Project phase 3 variant calls
+along with the Vindija33.19 and Denisova-Phalanx calls from the merged
+archaics callset used elsewhere in this manuscript, and found hits for EUR
+and EAS in many of the same regions (e.g. BNC2, CHMP1A, POU2F3). All runs
+used non-overlapping windows of 40 kbp. For our own dataset, we identified
+windows with U and Q95 greater than the 95th percentile genome-wide of each
+statistic, and checked these windows for overlap with adaptive introgression
+candidate regions from our method, finding an average of 70.1% (s.d. 11.7%)
+of AI candidate regions from our methods per population overlapping with a
+significant U and Q95 window per population, whereas only an average of
+24.8% (s.d. 7.3%) of significant U and Q95 windows per population
+overlapping an AI candidate region from our method. This indicates that our
+method is both accurate and conservative.
 
 ## Functional annotation
 
