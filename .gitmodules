@@ -13,3 +13,6 @@
 [submodule "Analysis_Pipelines/HumanPopGenScripts"]
         path = Analysis_Pipelines/HumanPopGenScripts
         url = git@github.com:YourePrettyGood/HumanPopGenScripts.git
+[submodule "Analysis_Pipelines/PIBv1_MPRA_analyses"]
+	path = Analysis_Pipelines/PIBv1_MPRA_analyses
+	url = https://github.com/stephenrong/PIBv1_MPRA_analyses

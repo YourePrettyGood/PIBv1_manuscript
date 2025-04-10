@@ -995,6 +995,8 @@ Dependencies used:
 
 Documentation for this step is a work in progress, most of these analyses were
 performed by Stephen Rong.
+Please see Stephen's [MPRA and functional analyses Github repository](https://github.com/stephenrong/PIBv1_MPRA_analyses)
+for details and scripts, or see [the git submodule here](/Analysis_Pipelines/PIBv1_MPRA_analyses/).
 
 Identification of archaic deserts was performed using a combination of
 BEDtools commands and awk scripts. Specifically, we first merged all phased
@@ -1081,6 +1083,8 @@ method is both accurate and conservative.
 
 Documentation for this step is a work in progress, these analyses were performed
 by Stephen Rong.
+Please see Stephen's [MPRA and functional analyses Github repository](https://github.com/stephenrong/PIBv1_MPRA_analyses)
+for details and scripts, or see [the git submodule here](/Analysis_Pipelines/PIBv1_MPRA_analyses/).
 
 ## Massively Parallel Reporter Assay
 
@@ -1113,3 +1117,5 @@ oligos) were submitted to Twist Biosciences for synthesis.
 
 Documentation for this step is a work in progress, these analyses were performed
 by Stephen Rong.
+Please see Stephen's [MPRA and functional analyses Github repository](https://github.com/stephenrong/PIBv1_MPRA_analyses)
+for details and scripts, or see [the git submodule here](/Analysis_Pipelines/PIBv1_MPRA_analyses/).

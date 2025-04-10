@@ -108,5 +108,4 @@ with GRCh38:
 - `ADMIXTURE.nf`
 - `smcpp.nf`
 - `sprime.nf`
-
-`adaptiveintrogression.nf` is in the process of being tested for compatibility.
+- `adaptiveintrogression.nf`
