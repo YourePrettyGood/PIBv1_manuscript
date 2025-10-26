@@ -31,6 +31,7 @@
     - [Core haplotypes](#core-haplotypes)
     - [Archaic deserts](#archaic-deserts)
 - [Selection and adaptive introgression](#selection-and-adaptive-introgression)
+  - [Performance evaluation](#performance-evaluation)
 - [Functional annotation](#functional-annotation)
 - [Massively Parallel Reporter Assay](#massively-parallel-reporter-assay)
   - [MPRA oligo design](#mpra-oligo-design)
@@ -1050,6 +1051,10 @@ Dependencies used:
 
 Documentation for this step is a work in progress, these analyses were performed
 by Daniela Tejada Martinez.
+Please see Dani's [Selection scans Github repository](https://github.com/dtejadam/SelectionScans)
+for details and scripts, or see [the git submodule here](/Analysis_Pipelines/SelectionScans/).
+Note that the scripts and files used for this manuscript can be found under the
+`PIBv1_scans` subdirectory along with a corresponding README.
 
 In response to a reviewer comment, we compared the adaptive introgression
 candidate regions identified using our method with windows identified as
@@ -1078,6 +1083,119 @@ significant U and Q95 window per population, whereas only an average of
 24.8% (s.d. 7.3%) of significant U and Q95 windows per population
 overlapping an AI candidate region from our method. This indicates that our
 method is both accurate and conservative.
+
+### Performance evaluation
+
+To address reviewer comments, we evaluated the performance, and in particular
+the false positive rate, of our adaptive introgression detection approach
+using neutral coalescent simulations. We first established a Nextflow pipeline
+to perform coalescent simulations of the 22 autosomes using stdpopsim with the
+msprime engine based on the `PapuansOutOfAfrica_10J19` demographic model from
+[Jacobs et al. 2019](https://doi.org/10.1016/j.cell.2019.02.035). The pipeline
+generates VCFs from the tree sequences produced by msprime 1.3.4 using tskit 0.6.4
+and runs trimmed and concatenated versions of the `sprime.nf` and `adaptiveintrogression.nf`
+pipelines used in the manuscript, as well as running XP-EHH and windowed PBSn1
+scans using `xpehh_cli.py` and `pbs_cli.py`, which evaluate the two selection
+statistics in an equivalent way to Dani's pipeline. Thus, the output of this
+simulation pipeline is a set of archaic core haplotypes and their frequencies,
+as well as XP-EHH and windowed PBSn1 values for one whole genome under the
+neutral coalescent.
+
+We did not add any further bottlenecks along the "Papuan" lineage in the
+model, as the "Papuan" lineage already had a very small Ne, and tuning
+the existing model to accurately reflect our empirical data (such as the
+bottleneck we observe in some Near Oceanic groups ~20-30 kya after some
+post-Out-of-Africa growth) would be so time-intensive as to be prohibitive.
+At that point, we might as well infer our own demographic model from scratch.
+
+Since our adaptive introgression detection approach is multi-pronged, these
+simulations allowed us to evaluate the prongs separately for FPR. In the case
+of archaic core haplotype frequency, evaluation of FPR for each population
+was fairly straightforward:
+
+1. Determine the 95th percentile of the observed archaic core haplotype
+frequency distribution for a given population, a frequency `f_t`
+2. For a given whole-genome simulation, calculate FPR as the proportion of
+archaic core haplotypes with frequency greater than or equal to `f_t`
+
+This procedure is required for a reliable estimate of FPR, as simply applying
+a quantile threshold to the simulations is guaranteed to result in an FPR
+estimate of about 5% when the 95th percentile is used as a threshold, regardless
+of the true FPR of the method. Similarly, we cannot reliably estimate FPR for
+the selection scan prong of the method by simply evaluating quantile ranks and
+`p_FCS` on the neutral simulations, as this too should result in an FPR estimate
+of about `p_FCS` regardless of the true FPR of the method.
+
+However, for the selection scans and `p_FCS` approach, the mapping from XP-EHH
+and PBSn1 scores to `p_FCS` is nonlinear and complicated, as is the inverse
+mapping analogous to what we did for archaic core haplotype frequency. To
+address this complication, we regressed the relationship between XP-EHH and
+PBSn1 scores as predictors and `-log10(p_FCS)` as the response using
+gradient boosted decision trees with xgboost . The idea here is that if we
+build a reliable predictor of `-log10(p_FCS)` from XP-EHH and PBSn1 scores
+for each population, we can then apply it to the XP-EHH and PBSn1 scores
+from a given simulation, which then lets us estimate FPR as the proportion
+of windows at or exceeding a given `-log10(p_FCS)` threshold.
+
+It is worth noting that, in theory, the distribution of `p_FCS` evaluated
+on quantile ranks should be uniformly distributed along [0, 1], since
+(in theory) quantile ranks themselves should be uniformly distributed
+along [0, 1] as a consequence of inverting the CDF. While frequently
+not the case in practice, it is more sensible to treat `p_FCS` values from
+quantile rank inputs as rank statistics rather than measures of statistical
+significance. Performing the above regression is one of the few ways we can
+bridge this gap between empirical rank/outlier tests and statistical
+significance. And it's honestly a very weird thing to think about
+statistically. That regression is essentially taking a huge amount of data
+to regress an arbitrary function of two features predicting a single
+continuous response variable.
+
+Some further technical details:
+
+To match as much as possible to the empirical data and adaptive introgression
+detection methods used, we evaluated PBSn1 in 20 SNV windows with 5 SNV step,
+and XP-EHH on each SNV but then took the maximum XP-EHH in each 20 SNV window
+with 5 SNV step as the XP-EHH score for that window. Infinite XP-EHH values
+were treated as NaNs, as were infinite PBSn1 values. As with the empirical
+data, negative PBSn1 values were clipped to 0. For the simulations,
+these statistics were evaluated with Papuan as the target population, CHB as
+the reference population, and YRI+CEU (`YRI,CEU`) as the outgroup population.
+To match empirical sample sizes, we simulated with 100 diploids for "Papuan",
+237 diploids for "CHB", 150 diploids for "CEU", and 101 diploids for "YRI",
+although we only used 21 of the "YRI" samples as the Sprime outgroup
+(see Table S1 of the manuscript for where we got these sample sizes).
+We also simulated 1 diploid for "NeaA" and 1 diploid for "DenA", which is
+a slight deviation from the empirical data. Simulations were performed with
+the "HapMapII_GRCh37" recombination rate map integrated into stdpopsim, and
+the equivalent genetic map files were used for Sprime and XP-EHH. Though it's
+worth noting that stdpopsim by default simulates using GRCh38 chromosome
+lengths, so there may be slight mismatches toward the q arm telomeric ends.
+We simulated 100 diploids for "Papuan" in order to have decent sample size
+for calculating r^2 in the archaic core haplotype pipeline, but only the
+first 25 of these "Papuan" samples were actually used for Sprime, PBSn1,
+XP-EHH, and archaic core haplotype frequency estimates in order to more
+closely match the target population sample sizes in the empirical analyses.
+The empirical analyses used r^2 calculated on the full set of Oceanian
+samples, so this simulated sample scheme better recapitulates the procedure
+used in the empirical analyses.
+
+As for the regression, we used xgboost for windows where `-log10(p_FCS)`
+was finite, holding out 20% of the data as an evaluation set.
+After testing combinations of the `gbtree`, `gblinear`, and `dart` boosters
+with `reg:squarederror` and `reg:absoluteerror` options for loss functions
+and default or extended maximum decision tree depth (`max_depth`), we
+settled on the best performer: `gbtree` with `reg:squarederror` loss and
+`max_depth` of ___. Performance among these evaluations was determined
+based on the `rmse`, `mae`, `mape`, and `logloss` evaluation metrics.
+It was critical to use `-log10(p_FCS)` as a response rather than `p_FCS`,
+as all of these loss functions would have prioritized accuracy when
+predicting large values of the response relative to small values, and we
+care a lot more about accuracy when predicting small values of `p_FCS`
+than we do getting large values of `p_FCS` exactly right, since these
+small values are our selection scan hits. This is equally true for the
+utility of the evaluation metrics. As a further check on this, we evaluated
+error in the evaluation set in bins of `-log10(p_FCS)` to ensure that
+prediction accuracy wasn't sacrificed in any particular range of `p_FCS`.
 
 ## Functional annotation
 
