@@ -59,67 +59,36 @@ compatible with the order of scaffolds in the hs37d5 reference.
 | Mask 1 | Mask 2 | Mask 3 | Mask 4 | Filter 1 | Variant Count |
 |:------:|:------:|:------:|:------:|:--------:| -------------:|
 |  |  |  |  |  | 116,324 |
-<!-- cpg2_windows	90035 -->
 | X |  |  |  |  | 90,035 |
-<!-- genomicSuperDups	114014 -->
 |  | X |  |  |  | 114,014 |
-<!-- hg19_TRF_nochrprefix_nounplaced	114832 -->
 |  |  | X |  |  | 114,832 |
-<!-- hs37m_mask35_50	95822 -->
 |  |  |  | X |  | 95,822 |
-<!-- hg19lifted-cCREs_V4_nochrprefix_nounplaced	27808 -->
 |  |  |  |  | X | 27,808 |
-<!-- cpg2_windows	genomicSuperDups	88237 -->
 | X | X |  |  |  | 88,237 |
-<!-- cpg2_windows	hg19_TRF_nochrprefix_nounplaced	88669 -->
 | X |  | X |  |  | 88,669 |
-<!-- cpg2_windows	hs37m_mask35_50	75612 -->
 | X |  |  | X |  | 75,612 |
-<!-- cpg2_windows	hg19lifted-cCREs_V4_nochrprefix_nounplaced	20451 -->
 | X |  |  |  | X | 20,451 |
-<!-- genomicSuperDups	hg19_TRF_nochrprefix_nounplaced	112547 -->
 |  | X | X |  |  | 112,547 |
-<!-- genomicSuperDups	hs37m_mask35_50	94742 -->
 |  | X |  | X |  | 94,742 |
-<!-- genomicSuperDups	hg19lifted-cCREs_V4_nochrprefix_nounplaced	27291 -->
 |  | X |  |  | X | 27,291 |
-<!-- hg19_TRF_nochrprefix_nounplaced	hs37m_mask35_50	95095 -->
 |  |  | X | X |  | 95,095 |
-<!-- hg19_TRF_nochrprefix_nounplaced	hg19lifted-cCREs_V4_nochrprefix_nounplaced	27458 -->
 |  |  | X |  | X | 27,458 |
-<!-- hs37m_mask35_50	hg19lifted-cCREs_V4_nochrprefix_nounplaced	25202 -->
 |  |  |  | X | X | 25,202 |
-<!-- cpg2_windows	genomicSuperDups	hg19_TRF_nochrprefix_nounplaced	86894 -->
 | X | X | X |  |  | 86,894 |
-<!-- cpg2_windows	genomicSuperDups	hs37m_mask35_50	74796 -->
 | X | X |  | X |  | 74,796 |
-<!-- cpg2_windows	genomicSuperDups	hg19lifted-cCREs_V4_nochrprefix_nounplaced	20074 -->
 | X | X |  |  | X | 20,074 |
-<!-- cpg2_windows	hg19_TRF_nochrprefix_nounplaced	hs37m_mask35_50	74971 -->
 | X |  | X | X |  | 74,971 |
-<!-- cpg2_windows	hg19_TRF_nochrprefix_nounplaced	hg19lifted-cCREs_V4_nochrprefix_nounplaced	20145 -->
 | X |  | X |  | X | 20,145 |
-<!-- cpg2_windows	hs37m_mask35_50	hg19lifted-cCREs_V4_nochrprefix_nounplaced	18654 -->
 | X |  |  | X | X | 18,654 |
-<!-- genomicSuperDups	hg19_TRF_nochrprefix_nounplaced	hs37m_mask35_50	94027 -->
 |  | X | X | X |  | 94,027 |
-<!-- genomicSuperDups	hg19_TRF_nochrprefix_nounplaced	hg19lifted-cCREs_V4_nochrprefix_nounplaced	26945 -->
 |  | X | X |  | X | 26,945 |
-<!-- genomicSuperDups	hs37m_mask35_50	hg19lifted-cCREs_V4_nochrprefix_nounplaced	24904 -->
 |  | X |  | X | X | 24,904 |
-<!-- hg19_TRF_nochrprefix_nounplaced	hs37m_mask35_50	hg19lifted-cCREs_V4_nochrprefix_nounplaced	25017 -->
 |  |  | X | X | X | 25,017 |
-<!-- cpg2_windows	genomicSuperDups	hg19_TRF_nochrprefix_nounplaced	hs37m_mask35_50	74166 -->
 | X | X | X | X |  | 74,166 |
-<!-- cpg2_windows	genomicSuperDups	hg19_TRF_nochrprefix_nounplaced	hg19lifted-cCREs_V4_nochrprefix_nounplaced	19771 -->
 | X | X | X |  | X | 19,771 |
-<!-- cpg2_windows	genomicSuperDups	hs37m_mask35_50	hg19lifted-cCREs_V4_nochrprefix_nounplaced	18446 -->
 | X | X |  | X | X | 18,446 |
-<!-- cpg2_windows	hg19_TRF_nochrprefix_nounplaced	hs37m_mask35_50	hg19lifted-cCREs_V4_nochrprefix_nounplaced	18499 -->
 | X |  | X | X | X | 18,499 |
-<!-- genomicSuperDups	hg19_TRF_nochrprefix_nounplaced	hs37m_mask35_50	hg19lifted-cCREs_V4_nochrprefix_nounplaced	24722 -->
 |  | X | X | X | X | 24,722 |
-<!-- cpg2_windows	genomicSuperDups	hg19_TRF_nochrprefix_nounplaced	hs37m_mask35_50	hg19lifted-cCREs_V4_nochrprefix_nounplaced	18293 -->
 | X | X | X | X | X | 18,293 |
 
 Since our target is 20-30k variants and some of these masks are less
@@ -134,11 +103,8 @@ each flank):
 
 | Mask 2 | Mask 4 | Filter 1 | Mask 3 slop | Variant Count |
 |:------:|:------:|:--------:|:-----------:| -------------:|
-<!-- genomicSuperDups	hs37m_mask35_50	hg19lifted-cCREs_V4_nochrprefix_nounplaced	hg19_TRF_nochrprefix_nounplaced(slop0)	24722 -->
 | X | X | X | 0 | 24,722 |
-<!-- genomicSuperDups	hs37m_mask35_50	hg19lifted-cCREs_V4_nochrprefix_nounplaced	hg19_TRF_nochrprefix_nounplaced(slop85)	24255 -->
 | X | X | X | 85 | 24,255 |
-<!-- genomicSuperDups	hs37m_mask35_50	hg19lifted-cCREs_V4_nochrprefix_nounplaced	hg19_TRF_nochrprefix_nounplaced(slop110)	24143 -->
 | X | X | X | 110 | 24,143 |
 
 We also should screen for variants in close proximity to each other,
