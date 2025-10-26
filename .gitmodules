@@ -16,3 +16,6 @@
 [submodule "Analysis_Pipelines/PIBv1_MPRA_analyses"]
 	path = Analysis_Pipelines/PIBv1_MPRA_analyses
 	url = https://github.com/stephenrong/PIBv1_MPRA_analyses
+[submodule "Analysis_Pipelines/SelectionScans"]
+	path = Analysis_Pipelines/SelectionScans
+	url = git@github.com:dtejadam/SelectionScans
