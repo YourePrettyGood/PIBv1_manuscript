@@ -13,17 +13,17 @@
 - [Population structure analysis](#population-structure-analysis)
   - [Principal components analysis (PCA)](#principal-components-analysis-pca)
   - [ADMIXTURE](#admixture)
-  - Outgroup f<sub>3</sub>
-  - Neighbour-Joining tree from pairwise F<sub>ST</sub>
-  - Local ancestry inference (RFMix)
-  - f<sub>4</sub> statistics
+  - [Outgroup f<sub>3</sub>](#outgroup-f3)
+  - [Neighbour-Joining tree from pairwise F<sub>ST</sub>](#fst-nj-tree)
+  - [Local ancestry inference (RFMix)](#local-ancestry-inference-with-rfmix)
+  - [f<sub>4</sub> statistics](#f4-statistics)
 - [Demographic inference](#demographic-inference)
-  - Runs of Homozygosity (ROH) analysis
+  - [Runs of Homozygosity (ROH) analysis](#runs-of-homozygosity-roh-analysis)
   - [SMC++](#smc)
 - [Archaic introgression](#archaic-introgression)
   - [PCA projection](#pca-projection)
   - [D statistics](#d-statistics)
-  - f<sub>4</sub> ratio statistics
+  - [f<sub>4</sub> ratio statistics](#f4-ratio-statistics)
   - [Sprime](#sprime)
     - [Phased projections](#phased-projections)
     - [Archaic coverage](#archaic-coverage)
@@ -372,22 +372,31 @@ out, and existing online instructions we found were incorrect or incomplete.
 
 Documentation for this step is a work in progress, these analyses were performed
 by Chang Liu.
+Please see Chang's [ADMIXTOOLS and Local Ancestry Inference scripts Github repository](https://github.com/Chg-Liu/PIB_scripts)
+for details and scripts, or see [the git submodule here](/Analysis_Pipelines/ADMIXTOOLS_LAI_scripts/).
+Note that the scripts and files used for this manuscript can be found under the
+`outgroupf3` subdirectory along with a corresponding README.
+
+In brief, Chang converted the MAFLD dataset's PLINK files into EIGENSTRAT .geno/.snp/.ind format
+using `convertf` after combining the autosomes together, and then ran `qp3Pop` from
+ADMIXTOOLS version 7.0.2 with a popfile containing all pairs of non-African groups
+in the first two columns and Yoruba in the third column.
 
 ### F<sub>ST</sub> NJ tree
 
 This analysis was performed by Daniela Tejada Martinez and Patrick F. Reilly.
-We calculated pairwise F<sub>ST</sub> for all analysis groups in the dataset
+We calculated pairwise $`F_{ST}`$ for all analysis groups in the dataset
 using the estimator of [Hudson, Slatkin, and Maddison 1992](https://doi.org/10.1093/genetics/132.2.583)
 as implemented in [PLINK 2.00 alpha 3.6](https://www.cog-genomics.org/plink/2.0/).
-We used the "MAFLD" dataset as input. We then constructed a PxP matrix of these
-pairwise F<sub>ST</sub> values (where P is the number of populations) to serve
+We used the "MAFLD" dataset as input. We then constructed a $`P{\times}P`$ matrix of these
+pairwise $`F_{ST}`$ values (where $P$ is the number of populations) to serve
 as a distance matrix and used the `nj()` function in the [ape](https://cran.r-project.org/web/packages/ape/index.html)
 to construct a neighbour-joining tree from this distance matrix using the
 method of Saitou and Nei (1987) MBE. The resulting tree (output in Newick
 format using `write.tree()`) was then imported into [iTOL](https://itol.embl.de/)
 for visualization.
 
-The command line used for calculating pairwise F<sub>ST</sub> was:
+The command line used for calculating pairwise $`F_{ST}`$ was:
 ```bash
 plink2_linux_avx2_intel --threads 1 --memory 3000 \
   --bfile pruned_PLINK/PIBv1_noVanuatu_autosomes_globalMAFge0.01_bSNPs_Choin \
@@ -401,11 +410,19 @@ plink2_linux_avx2_intel --threads 1 --memory 3000 \
 
 Documentation for this step is a work in progress, these analyses were performed
 by Chang Liu.
+Please see Chang's [ADMIXTOOLS and Local Ancestry Inference scripts Github repository](https://github.com/Chg-Liu/PIB_scripts)
+for details and scripts, or see [the git submodule here](/Analysis_Pipelines/ADMIXTOOLS_LAI_scripts/).
+Note that the scripts and files used for this manuscript can be found under the
+`Local_Ancestry_Inference` subdirectory along with a corresponding README.
 
 ### f<sub>4</sub> statistics
 
 Documentation for this step is a work in progress, these analyses were performed
 by Chang Liu.
+Please see Chang's [ADMIXTOOLS and Local Ancestry Inference scripts Github repository](https://github.com/Chg-Liu/PIB_scripts)
+for details and scripts, or see [the git submodule here](/Analysis_Pipelines/ADMIXTOOLS_LAI_scripts/).
+Note that the scripts and files used for this manuscript can be found under the
+`f4` subdirectory along with a corresponding README.
 
 ## Demographic inference
 
@@ -418,7 +435,7 @@ by Audrey Tjahjadi.
 
 This analysis was performed by Patrick F. Reilly.
 We inferred single-population trajectories of effective population size over
-time (N<sub>e</sub>(t)) from whole-genome sequences of at least 8 samples
+time ($`N_e(t)`$) from whole-genome sequences of at least 8 samples
 per population using [SMC++](https://github.com/popgenmethods/smcpp). For each
 of 58 populations, we performed composite likelihood inference based on 10
 randomly chosen distinguished lineages per population (or all possible
@@ -459,16 +476,57 @@ Dependencies used:
 
 Documentation for this step is a work in progress, these analyses were performed
 by Chang Liu.
+Please see Chang's [ADMIXTOOLS and Local Ancestry Inference scripts Github repository](https://github.com/Chg-Liu/PIB_scripts)
+for details and scripts, or see [the git submodule here](/Analysis_Pipelines/ADMIXTOOLS_LAI_scripts/).
+Note that the scripts and files used for this manuscript can be found under the
+`PCA_projection` subdirectory along with a corresponding README.
 
 ### D statistics
 
 Documentation for this step is a work in progress, these analyses were performed
 by Chang Liu.
+Please see Chang's [ADMIXTOOLS and Local Ancestry Inference scripts Github repository](https://github.com/Chg-Liu/PIB_scripts)
+for details and scripts, or see [the git submodule here](/Analysis_Pipelines/ADMIXTOOLS_LAI_scripts/).
+Note that the scripts and files used for this manuscript can be found under the
+`Dstats` subdirectory along with a corresponding README.
+
+In brief, Chang used the Mappability50 dataset, combining the autosomes together and
+then running `qpDstat` from ADMIXTOOLS version 7.0.2 with a popfile containing
+Chimpanzee in the first column, Yoruba in the third column, and iterating over all
+four archaic hominins in the second column and all non-African groups in the
+fourth column.
 
 ### f<sub>4</sub> ratio statistics
 
 Documentation for this step is a work in progress, these analyses were performed
 by Chang Liu.
+Please see Chang's [ADMIXTOOLS and Local Ancestry Inference scripts Github repository](https://github.com/Chg-Liu/PIB_scripts)
+for details and scripts, or see [the git submodule here](/Analysis_Pipelines/ADMIXTOOLS_LAI_scripts/).
+Note that the scripts and files used for this manuscript can be found under the
+`f4ratio` subdirectory along with a corresponding README.
+
+In brief, Chang used the Mappability50 dataset, combining the autosomes together and
+then running `qpF4ratio` from ADMIXTOOLS version 7.0.2 with a popfile containing
+lists of groups structured in one of two ways corresponding to the $`P_N(X)`$
+and $`P_D(X)`$ estimates of Neanderthal and Denisovan introgression proportions.
+
+For $`P_N(X)`$, the line looks like:
+```
+Chimpanzee AltaiNeandertal : Yoruba X :: Chimpanzee AltaiNeandertal : Yoruba Vindija33.19
+```
+where X is each non-African group in turn. This tests the f<sub>4</sub> ratio described
+in the supplement for $`P_N(X)`$.
+
+For $`P_D(X)`$, the line looks like:
+```
+Yoruba Vindija33.19 : Han X :: Yoruba Vindija33.19 : Han Denisova
+```
+where X is each non-African group in turn. This tests the f<sub>4</sub> ratio described
+in the supplement for $`P_D(X)`$.
+
+You'll notice one extra set of lines corresponding to P<sub>D</sub>(X) where Atayal is
+substituted for Han. These were part of some internal testing of robustness of P<sub>D</sub>(X)
+to the choice of East Asian lineage, especially for Oceanians.
 
 ### Sprime
 
@@ -933,17 +991,17 @@ to be in strong LD though.
 Thus, the next step is to calculate pairwise LD amongst all Sprime sites of a
 given archaic origin on a particular chromosome. In the `adaptiveintrogression.nf`
 pipeline, we do this with [vcftools](https://github.com/vcftools/vcftools),
-calculating r<super>2</super> from either unphased genotypes (`params.phased = false`)
+calculating $`r^2`$ from either unphased genotypes (`params.phased = false`)
 or phased genotypes (`params.phased = true`), which triggers either the
-`--geno-r2` or `--hap-r2` flag to `vcftools`. Only pairs with r<super>2</super> >= `params.min_r2` (default=0.3)
+`--geno-r2` or `--hap-r2` flag to `vcftools`. Only pairs with $`r^2 \ge`$ `params.min_r2` (default=0.3)
 are retained in the output, as these sites are in sufficiently strong LD to
 be considered candidates for a core haplotype.
 
-As a slight digression, r<super>2</super> can be calculated at a different
+As a slight digression, $`r^2`$ can be calculated at a different
 sample size scale than the original Sprime target group if desired. For example,
 let's say the Sprime target group was HGDP Dai Chinese where the sample size
-is n=8. Calculating r<super>2</super> from 8 diploid individuals will produce
-a fairly high variance estimate of r<super>2</super>, which isn't great if you
+is n=8. Calculating $`r^2`$ from 8 diploid individuals will produce
+a fairly high variance estimate of $`r^2`$, which isn't great if you
 want to identify sites in reliably strong LD for a core haplotype. Instead, you
 could calculate LD amongst those sites in East Asians where your sample size
 would then be in the 100s and thus much lower variance. This, of course, assumes
@@ -952,12 +1010,12 @@ if that seems like a reasonable assumption, then it should work. We chose to
 follow this approach in the manuscript, as Sprime was run with target groups
 being analysis groups/populations, so sample sizes were well below 100. If you
 were to run this pipeline on the 1000 Genomes Project dataset, you could just
-calculate r<super>2</super> on the target populations themselves, since those
+calculate $`r^2<`$ on the target populations themselves, since those
 sample sizes are in the hundreds per population.
 
-Once we have the pairs of Sprime sites with r<super>2</super> >= 0.3, we
+Once we have the pairs of Sprime sites with $`r^2 \ge 0.3`$, we
 construct a simple undirected graph where Sprime sites are nodes and site pairs
-with r<super>2</super> >= 0.3 are edges. Core haplotypes are then identified
+with $`r^2 \ge 0.3`$ are edges. Core haplotypes are then identified
 as the connected components of this graph, and the R script outputs sites
 labeled by the connected component in which they are found (a simple integer
 label). This simple label is then translated into a core haplotype ID by
@@ -999,13 +1057,13 @@ performed by Stephen Rong.
 Please see Stephen's [MPRA and functional analyses Github repository](https://github.com/stephenrong/PIBv1_MPRA_analyses)
 for details and scripts, or see [the git submodule here](/Analysis_Pipelines/PIBv1_MPRA_analyses/).
 
-Identification of archaic deserts was performed using a combination of
-BEDtools commands and awk scripts. Specifically, we first merged all phased
-projections from all non-African individuals with `bedtools merge`, then
-took the autosome-wide complement using `bedtools complement` with the `-g`
-flag pointing to a `.genome` file of only the autosomes of hs37d5. We then
-subtracted out the masked regions of hs37d5 with `bedtools subtract`, and
-finally thresholded the resulting intervals absent of introgression to
+For the revisions, identification of archaic deserts was performed using a
+combination of BEDtools commands and awk scripts. Specifically, we first
+merged all phased projections from all non-African individuals with
+`bedtools merge`, then took the autosome-wide complement using `bedtools complement`
+with the `-g` flag pointing to a `.genome` file of only the autosomes of
+hs37d5. We then subtracted out the masked regions of hs37d5 with `bedtools subtract`,
+and finally thresholded the resulting intervals absent of introgression to
 extract only those intervals of at least 1 Mbp using a custom awk script.
 Precise commands used can be found below:
 
@@ -1114,34 +1172,58 @@ of archaic core haplotype frequency, evaluation of FPR for each population
 was fairly straightforward:
 
 1. Determine the 95th percentile of the observed archaic core haplotype
-frequency distribution for a given population, a frequency `f_t`
+frequency distribution for a given population, a frequency $`f_t`$
 2. For a given whole-genome simulation, calculate FPR as the proportion of
-archaic core haplotypes with frequency greater than or equal to `f_t`
+archaic core haplotypes with frequency $`f \ge f_t`$
 
 This procedure is required for a reliable estimate of FPR, as simply applying
 a quantile threshold to the simulations is guaranteed to result in an FPR
 estimate of about 5% when the 95th percentile is used as a threshold, regardless
 of the true FPR of the method. Similarly, we cannot reliably estimate FPR for
 the selection scan prong of the method by simply evaluating quantile ranks and
-`p_FCS` on the neutral simulations, as this too should result in an FPR estimate
-of about `p_FCS` regardless of the true FPR of the method.
+$`p_{FCS}`$ on the neutral simulations, as this too should result in an FPR estimate
+of about $`p_{FCS}`$ regardless of the true FPR of the method.
 
-However, for the selection scans and `p_FCS` approach, the mapping from XP-EHH
-and PBSn1 scores to `p_FCS` is nonlinear and complicated, as is the inverse
+However, for the selection scans and $`p_{FCS}`$ approach, the mapping from XP-EHH
+and PBSn1 scores to $`p_{FCS}`$ is nonlinear and complicated, as is the inverse
 mapping analogous to what we did for archaic core haplotype frequency. To
 address this complication, we regressed the relationship between XP-EHH and
-PBSn1 scores as predictors and `-log10(p_FCS)` as the response using
-gradient boosted decision trees with xgboost . The idea here is that if we
-build a reliable predictor of `-log10(p_FCS)` from XP-EHH and PBSn1 scores
-for each population, we can then apply it to the XP-EHH and PBSn1 scores
-from a given simulation, which then lets us estimate FPR as the proportion
-of windows at or exceeding a given `-log10(p_FCS)` threshold.
+PBSn1 scores as predictors and $`-log_{10}(p_{FCS})`$ as the response.
+The idea here is that if we build a reliable predictor of $`-log_{10}(p_{FCS})`$
+from XP-EHH and PBSn1 scores for each population, we can then apply it to the
+XP-EHH and PBSn1 scores from a given simulation, which then lets us estimate FPR
+as the proportion of windows at or exceeding a given $`-log_{10}(p_{FCS})`$
+threshold.
 
-It is worth noting that, in theory, the distribution of `p_FCS` evaluated
+To further estimate false discovery rate (FDR), we borrowed the idea behind
+the FDR estimator from [Gittelman et al. 2016](https://doi.org/10.1016/j.cub.2016.10.041)
+(see page 7 of their supplement). After some algebraic manipulation, that formula
+can be reinterpreted as the ratio of the proportion of called positives from the
+simulations ($`P_S`$, a.k.a. FPR) to the proportion of called positives from
+the observed data ($`P_O`$), given that called positives are defined as
+windows or core haplotypes with scores or frequencies exceeding a fixed threshold.
+That is:
+```math
+\begin{align}
+\hat{FDR} &= \frac{S \left( \frac{N_O}{N_S} \right)}{O} 
+ &= \frac{\left( \frac{S}{N_S} \right)}{\left( \frac{O}{N_O} \right)} 
+ &= \frac{P_S}{P_O}
+\end{align}
+```
+For the archaic core haplotypes, we evaluate these proportions in terms of the
+count of core haplotypes with frequency $`f \ge f_t`$. For the selection scans,
+we evaluate these proportions in terms of the count of selection scan windows
+with $`-log_{10}(p_{FCS}) \ge t`$ where $`t=2`$ (i.e. $`p_{FCS} \le 0.01`$).
+For the full adaptive introgression method combining the archaic core haplotypes
+and selection scans, we evaluate these proportions in terms of the count of
+selection scan windows with $`-log_{10}(p_{FCS}) \ge t`$ that also overlap
+core haplotypes with frequency $`f \ge f_t`$.
+
+It is worth noting that, in theory, the distribution of $`p_{FCS}`$ evaluated
 on quantile ranks should be uniformly distributed along [0, 1], since
 (in theory) quantile ranks themselves should be uniformly distributed
 along [0, 1] as a consequence of inverting the CDF. While frequently
-not the case in practice, it is more sensible to treat `p_FCS` values from
+not the case in practice, it is more sensible to treat $`p_{FCS}`$ values from
 quantile rank inputs as rank statistics rather than measures of statistical
 significance. Performing the above regression is one of the few ways we can
 bridge this gap between empirical rank/outlier tests and statistical
@@ -1171,31 +1253,75 @@ the equivalent genetic map files were used for Sprime and XP-EHH. Though it's
 worth noting that stdpopsim by default simulates using GRCh38 chromosome
 lengths, so there may be slight mismatches toward the q arm telomeric ends.
 We simulated 100 diploids for "Papuan" in order to have decent sample size
-for calculating r^2 in the archaic core haplotype pipeline, but only the
+for calculating r<sup>2</sup> in the archaic core haplotype pipeline, but only the
 first 25 of these "Papuan" samples were actually used for Sprime, PBSn1,
 XP-EHH, and archaic core haplotype frequency estimates in order to more
 closely match the target population sample sizes in the empirical analyses.
-The empirical analyses used r^2 calculated on the full set of Oceanian
+The empirical analyses used r<sup>2</sup> calculated on the full set of Oceanian
 samples, so this simulated sample scheme better recapitulates the procedure
 used in the empirical analyses.
 
-As for the regression, we used xgboost for windows where `-log10(p_FCS)`
-was finite, holding out 20% of the data as an evaluation set.
-After testing combinations of the `gbtree`, `gblinear`, and `dart` boosters
-with `reg:squarederror` and `reg:absoluteerror` options for loss functions
-and default or extended maximum decision tree depth (`max_depth`), we
-settled on the best performer: `gbtree` with `reg:squarederror` loss and
-`max_depth` of ___. Performance among these evaluations was determined
-based on the `rmse`, `mae`, `mape`, and `logloss` evaluation metrics.
-It was critical to use `-log10(p_FCS)` as a response rather than `p_FCS`,
-as all of these loss functions would have prioritized accuracy when
-predicting large values of the response relative to small values, and we
-care a lot more about accuracy when predicting small values of `p_FCS`
-than we do getting large values of `p_FCS` exactly right, since these
-small values are our selection scan hits. This is equally true for the
-utility of the evaluation metrics. As a further check on this, we evaluated
-error in the evaluation set in bins of `-log10(p_FCS)` to ensure that
-prediction accuracy wasn't sacrificed in any particular range of `p_FCS`.
+As for the regression, we tried a wide variety of regression models, including
+XGBoost for gradient-boosted decision trees, k-nearest neighbours (failed
+due to runtime), support vector machines (failed due to runtime), generalized
+additive models (GAM) with several different types of splines, and even
+a multilayer perceptron with one hidden layer and between 5 and 50 hidden units.
+Most of these approaches were trained and tested using the tidymodels R
+package (except xgboost, whose parsnip wrapper is broken for xgboost 3.x)
+using 5-fold cross-validation on 80% of the data followed by training a final
+model on the full 80% and evaluating the performance of the final model on
+the held-out 20%. These models were evaluated not only for regression
+accuracy and concordance using the `ccc`, `rsq`, `rsq_trad`, `mae`, `rmse`,
+and `mape` metrics from the yardstick package, but also confusion matrices
+were generated based on $`-log_{10}(p_{FCS})`$ thresholds of 2, 3, and 4.
+
+All of these models failed to perform adequately, though the best-performing
+model tested at this point was a GAM with the following formula:
+```
+log10_FCS ~ s(pbs, bs="cr", k=50) + s(max_xpehh, bs="cr", k=35) + ti(pbs, max_xpehh)
+```
+As an alternative approach, we then considered that the problem could actually
+be split into two separate regressions: `pbs_quantile_rank ~ pbs` and
+`max_xpehh_quantile_rank ~ max_xpehh`, and the resultant predictions combined
+into a Fisher's combined score, thereby perfectly modeling one of the nonlinear
+transformations and leaving the regression to model the remaining two sources
+of nonlinearity. We tried this approach with several of the above models, but
+as it turns out, the winner by far was simple linear interpolation. This makes
+sense, since the nonlinear transformation induced by taking quantile ranks
+at least maintains the monotonicity of the underlying distribution, and linear
+interpolation allows for many more degrees of freedom while maintaining
+monotonicity constraints. Perhaps double-descent would have achieved a similar
+result, but with tens of millions of predictor data points, that would have been
+computationally infeasible. Anyways, linear interpolation solved that issue
+for very very cheap and I felt pretty dumb for wasting so much time on
+complicated models when an early idea (linear interpolation) solved everything
+but was ignored.
+
+With an effectively perfect prediction model, we then evaluated FPR and FDR,
+but found that the FDR estimates for the selection scans alone were unreasonably
+high. As it turns out, after extensive troubleshooting, we found that this is
+due to comparison of observed to simulated data using the "standardized" value
+of XP-EHH (i.e. mean-centered and scaled by the standard deviation). Standardization
+of raw XP-EHH log-likelihood ratios as performed in the original [Sabeti et al. 2007 paper](https://doi.org/10.1038/nature06250)
+and recommended by the scikit-allel and selscan implementations is a tool for
+detecting outliers. However, when one compares real data to simulated data, it
+is clear from comparing the raw distributions to each other that real data with
+selection signals will have more extreme raw XP-EHH log-likelihood ratios.
+Comparing the standardized XP-EHH distributions, these extreme values are shrunken
+relative to the neutral simulations, resulting in incorrect inference that such
+windows are consistent with neutrality. It has been suggested that, when comparing
+to neutral simulations, standardization should occur with respect to the mean and
+standard deviation of the simulations rather than the mean and standard deviation
+of the real data. However, this is not how these functions are implemented in the
+scikit-allel and selscan packages.
+
+Thus, in order to properly evaluate FPR and FDR for our methods, we had to
+repeat this entire regression modelling process with raw XP-EHH scores.
+Furthermore, as a precaution we also re-evaluated our adaptive introgression
+candidates when using quantile ranks of raw XP-EHH scores rather than
+quantile ranks of standardized XP-EHH scores. While there were some
+quantitative differences between these results, our main results were
+robust to the use of standardized vs. raw XP-EHH scores.
 
 ## Functional annotation
 

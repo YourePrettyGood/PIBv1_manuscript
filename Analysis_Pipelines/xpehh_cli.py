@@ -47,7 +47,7 @@ def evaluate_stats(target_haps, ref_haps, pos, gmap, min_ehh=0.05, include_edges
     ihs_raw[~numpy.isfinite(ihs_raw)] = numpy.nan
     ihs, ihs_aac_bins = allel.standardize_by_allele_count(ihs_raw, target_haps.count_alleles()[:,1])
 
-    return numpy.column_stack((xpehh, xpnsl, ihs))
+    return numpy.column_stack((xpehh, xpnsl, ihs, xpehh_raw, xpnsl_raw, ihs_raw))
 
 def get_pop_lists(metadata_path, id_col, pop_col, superpop_col, target, ref):
     id_pop_map = list()
@@ -86,12 +86,27 @@ def get_pop_lists(metadata_path, id_col, pop_col, superpop_col, target, ref):
     if len(target_ids) == 0 or len(ref_ids) == 0:
         raise ValueError(f'No samples found in metadata for at least one of the groups required for XP-EHH. Target group was {target} and reference group was {ref}.')
 
+    print(f'Extracted {len(target_ids)} target samples and {len(ref_ids)} reference samples from metadata file.', file=sys.stderr, flush=True)
     return (target_ids, ref_ids)
 
 def interpolate_gmap(gmap_path, pos, pos_col_index, cM_col_index):
-    gmap_phys, gmap_gen = numpy.loadtxt(gmap_path, delimiter='\t', skiprows=1, usecols=(pos_col_index, cM_col_index), unpack=True)
+    #First check to see if the first line is a header or not:
+    lines_to_skip = 0
+    with open(gmap_path, 'r') as gmap:
+        header = gmap.readline().rstrip().split('\t')
+        try:
+            float(header[pos_col_index])
+        except ValueError:
+            lines_to_skip = 1
+        try:
+            float(header[cM_col_index])
+        except ValueError:
+            lines_to_skip = 1
+    print(f'Skipping first {lines_to_skip} lines of genetic map file {gmap_path}.', file=sys.stderr, flush=True)
+    gmap_phys, gmap_gen = numpy.loadtxt(gmap_path, delimiter='\t', skiprows=lines_to_skip, usecols=(pos_col_index, cM_col_index), unpack=True)
     if numpy.isclose(gmap_phys, gmap_phys[0]).all() or numpy.isclose(gmap_gen, gmap_gen[0]).all():
         raise ValueError(f'Physical or genetic map positions of all elements in the genetic map ({gmap_path}) are too similar to each other. Did you misspecify --pos_col_index ({pos_col_index}) or --cm_col_index ({cM_col_index}) for this genetic map file?')
+    print(f'Read {len(gmap_phys)} marker positions from genetic map file {gmap_path}.', file=sys.stderr, flush=True)
     return numpy.interp(pos, gmap_phys, gmap_gen)
 
 def write_xpehh(out_path, sites, xpehh_arr, target, ref):
@@ -101,12 +116,12 @@ def write_xpehh(out_path, sites, xpehh_arr, target, ref):
     suffix = f'{target}\t{ref}'
     with (gzip.open if out_path.endswith('.gz') else open)(out_path, 'wt') as xpehh_out:
         #Print a header line describing the columns:
-        print('#CHROM\tPOS\tCM\tID\tXPEHH\tXPNSL\tIHS\tTARGET\tREF', file=xpehh_out)
+        print('#CHROM\tPOS\tCM\tID\tXPEHH\tXPNSL\tIHS\trawXPEHH\trawXPNSL\trawIHS\tTARGET\tREF', file=xpehh_out)
         #Now iterate through the windows:
         for i in range(xpehh_arr.shape[0]):
             chrom, pos, cm, id = sites[i]
-            xpehh, xpnsl, ihs = xpehh_arr[i,]
-            print(f'{chrom}\t{pos:d}\t{cm:g}\t{id}\t{xpehh:g}\t{xpnsl:g}\t{ihs:g}\t{suffix}', file=xpehh_out)
+            xpehh, xpnsl, ihs, xpehh_raw, xpnsl_raw, ihs_raw = xpehh_arr[i,]
+            print(f'{chrom}\t{pos:d}\t{cm:g}\t{id}\t{xpehh:g}\t{xpnsl:g}\t{ihs:g}\t{xpehh_raw:g}\t{xpnsl_raw:g}\t{ihs_raw:g}\t{suffix}', file=xpehh_out)
 
 def run_xpehh(args):
     #Determine start time and CPU time:
@@ -158,10 +173,11 @@ def run_xpehh(args):
     #Generate the index lists from the VCF object's sample list:
     target_samples = [i for i, id in enumerate(vcf['samples']) if id in target]
     ref_samples = [i for i, id in enumerate(vcf['samples']) if id in ref]
+    print(f'{len(target_samples)} target samples and {len(ref_samples)} reference samples matched the VCF.', file=sys.stderr, flush=True)
 
     #Do the subsetting and extraction of phased haplotypes
-    target_haps = allel.HaplotypeArray(gts.subset(sel1=target_samples).haploidify_samples(), dtype='i1')
-    ref_haps = allel.HaplotypeArray(gts.subset(sel1=ref_samples).haploidify_samples(), dtype='i1')
+    target_haps = gts.subset(sel1=target_samples).to_haplotypes()
+    ref_haps = gts.subset(sel1=ref_samples).to_haplotypes()
 
     t_haps = time.perf_counter_ns()
     tcpu_haps = time.process_time_ns()
