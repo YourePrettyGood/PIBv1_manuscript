@@ -525,8 +525,8 @@ Yoruba Vindija33.19 : Han X :: Yoruba Vindija33.19 : Han Denisova
 where X is each non-African group in turn. This tests the f<sub>4</sub> ratio described
 in the supplement for $`P_D(X)`$.
 
-You'll notice one extra set of lines corresponding to P<sub>D</sub>(X) where Atayal is
-substituted for Han. These were part of some internal testing of robustness of P<sub>D</sub>(X)
+You'll notice one extra set of lines corresponding to $`P_D(X)`$ where Atayal is
+substituted for Han. These were part of some internal testing of robustness of $`P_D(X)`$
 to the choice of East Asian lineage, especially for Oceanians.
 
 ### Sprime
@@ -1121,14 +1121,14 @@ adaptive introgression candidates using the U and Q95 statistics of
 [Racimo et al. 2017 MBE](https://doi.org/10.1093/molbev/msw216). Since we
 weren't able to find a reference implementation of these statistics, we
 re-implemented them as a Nextflow pipeline [RacimoUQ95.nf](/Analysis_Pipelines/RacimoUQ95.nf).
-In particular, we evaluated `U_{A,B,C,D}` and `Q95_{A,B,C,D}` for `A` as all
-HGDP African populations, `B` being one of 18 target Oceanic groups (we ran
-the Sepik and Goroka of New Guinea separately for simplicity), `C` being the
-Vindija Neanderthal, and `D` being the Altai Denisovan. We ran each group
-three times for the different combinations of `y` and `z` corresponding to
-different archaic origins: `(y,z)=(1,0)` for Neanderthal, `(y,z)=(0,1)` for
-Denisovan, and `(y,z)=(1,1)` for Ambiguous. We evaluated U and Q95 with
-`w=0.01` and U with `x=0.5`, following the main analyses of Racimo et al. 2017.
+In particular, we evaluated $`U_{A,B,C,D}`$ and $`Q95_{A,B,C,D}`$ for $`A`$ as all
+HGDP African populations, $`B`$ being one of 18 target Oceanic groups (we ran
+the Sepik and Goroka of New Guinea separately for simplicity), $`C`$ being the
+Vindija Neanderthal, and $`D`$ being the Altai Denisovan. We ran each group
+three times for the different combinations of $`y`$ and $`z`$ corresponding to
+different archaic origins: $`(y,z)=(1,0)`$ for Neanderthal, $`(y,z)=(0,1)`$ for
+Denisovan, and $`(y,z)=(1,1)`$ for Ambiguous. We evaluated U and Q95 with
+$`w=0.01`$ and U with $`x=0.5`$, following the main analyses of Racimo et al. 2017.
 We tested this pipeline using the 1000 Genomes Project phase 3 variant calls
 along with the Vindija33.19 and Denisova-Phalanx calls from the merged
 archaics callset used elsewhere in this manuscript, and found hits for EUR
@@ -1264,11 +1264,11 @@ the equivalent genetic map files were used for Sprime and XP-EHH. Though it's
 worth noting that stdpopsim by default simulates using GRCh38 chromosome
 lengths, so there may be slight mismatches toward the q arm telomeric ends.
 We simulated 100 diploids for "Papuan" in order to have decent sample size
-for calculating r<sup>2</sup> in the archaic core haplotype pipeline, but only the
+for calculating $`r^2`$ in the archaic core haplotype pipeline, but only the
 first 25 of these "Papuan" samples were actually used for Sprime, PBSn1,
 XP-EHH, and archaic core haplotype frequency estimates in order to more
 closely match the target population sample sizes in the empirical analyses.
-The empirical analyses used r<sup>2</sup> calculated on the full set of Oceanian
+The empirical analyses used $`r^2`$ calculated on the full set of Oceanian
 samples, so this simulated sample scheme better recapitulates the procedure
 used in the empirical analyses.
 
@@ -1387,13 +1387,13 @@ Code for the re-runs of enrichment analyses as well as the adjusted background
 gene sets can be found in Stephen Rong's [MPRA and functional analyses Github repository](https://github.com/stephenrong/PIBv1_MPRA_analyses).
 
 Other analyses include:
-- Validation of ROH tracts by examining the distribution of read depth in ROH tracts
-- Examination of the distribution of the B statistic genome-wide versus in archaic introgression deserts
-- Comparison of adaptive introgression results against the U and Q95 statistics of Racimo et al. 2017
-- Estimation of the FPR and FDR of our adaptive introgression method based on neutral simulations
-- Plotting the divergence of worldwide and archaic hominin haplotypes from the adaptive introgressed haplotype at TRPS1
-- Overlap between adaptive introgression candidates and MalariaGEN GWAS hits
-- Evaluation of Sprime phased projections against hmmix and ArchaicSeeker2.0 introgressed tracts
+- [Validation of ROH tracts by examining the distribution of read depth in ROH tracts](#roh-depth-validation)
+- [Examination of the distribution of the B statistic genome-wide versus in archaic introgression deserts](#background-selection-and-archaic-introgression-deserts)
+- [Comparison of adaptive introgression results against the U and Q95 statistics of Racimo et al. 2017](#u-and-q95)
+- [Estimation of the FPR and FDR of our adaptive introgression method based on neutral simulations](#adaptive-introgression-false-positives)
+- [Plotting the divergence of worldwide and archaic hominin haplotypes from the adaptive introgressed haplotype at TRPS1](#haplotype-divergence-at-trps1)
+- [Overlap between adaptive introgression candidates and MalariaGEN GWAS hits](#adaptive-introgression-at-malaria-associated-loci)
+- [Evaluation of Sprime phased projections against hmmix and ArchaicSeeker2.0 introgressed tracts](#comparing-sprime-hmmix-and-archaicseeker20)
 
 ### ROH depth validation
 
