@@ -1176,6 +1176,16 @@ the existing model to accurately reflect our empirical data (such as the
 bottleneck we observe in some Near Oceanic groups ~20-30 kya after some
 post-Out-of-Africa growth) would be so time-intensive as to be prohibitive.
 At that point, we might as well infer our own demographic model from scratch.
+However, we did additionally run simulations with a very slightly modified
+model: We ran one simulation each with the `Nb_Papua` parameter set to 500
+or 1000 instead of 243. These modified simulations were evaluated to see how
+the FDR estimates would be affected by relaxing the Papuan bottleneck in
+the existing model. Please see the modified [`catalog/HomSap/demographic_models.py`](/Analysis_Pipelines/ReviewerResponses/Simulations/demographic_models.py)
+for the precise code used with stdpopsim for these additional simulations
+(in particular, the `_papuans500_10j19()` and `_papuans1k_10j19()` functions).
+The main simulations are in directories `Sim1/` through `Sim10/`, while the
+additional relaxed bottleneck simulations are in directories `Sim1b/` and
+`Sim1c/`.
 
 Since our adaptive introgression detection approach is multi-pronged, these
 simulations allowed us to evaluate the prongs separately for FPR. In the case
@@ -1336,6 +1346,28 @@ robust to the use of standardized vs. raw XP-EHH scores.
 
 Evaluation of FPR and FDR from the simulation outputs and observed data
 was performed using [`PIBv1_AdInt_performanceeval_20251119.R`](/Analysis_Pipelines/ReviewerResponses/Simulations/PIBv1_AdInt_performanceeval_20251119.R).
+Evaluation of FPR and FDR from the additional simulations with relaxed
+bottleneck was performed using [`PIBv1_AdInt_performanceeval_20251205.R`](/Analysis_Pipelines/ReviewerResponses/Simulations/PIBv1_AdInt_performanceeval_20251205.R).
+
+Dependencies for the `adaptive_introgression_simulations.nf` pipeline can
+be installed with conda via:
+```bash
+conda create -n adintsims stdpopsim msprime tskit "scikit-allel" numpy bcftools htslib
+```
+At the time of running, this installed the following package versions:
+- stdpopsim 0.3.0
+- msprime 1.3.4
+- tskit 0.6.4
+- scikit-allel 1.3.13
+- numpy 2.3.3
+- bcftools 1.22
+- htslib 1.22
+
+R code dependencies include:
+- R 4.x (v4.3.2 was used)
+- RcppRoll 0.3.1
+- tidyverse 2.0.0
+- tidymodels 1.4.1
 
 ## Functional annotation
 

@@ -1,5 +1,8 @@
 #!/usr/bin/env Rscript
-#PIBv1 adaptive introgression method performance evaluation 2025/11/19:
+#PIBv1 adaptive introgression method performance evaluation 2025/12/05:
+#This script compares one simulation each of the original
+# PapuansOutOfAfrica_10J19 model with variants where Nb_Papua is
+# either 500 (Sim1b) or 1000 (Sim1c).
 
 #Load the libraries:
 library(RcppRoll)
@@ -219,7 +222,9 @@ corehap_AGs <- c("Ata"="Ata",
                  "Vella-Lavella"="Vella-Lavella")
 
 #Simulations to include:
-sim_nums <- 1:10
+sim_nums <- c("1", "1b", "1c")
+Nb_Papua <- data.frame(Simulation=sim_nums,
+                       NbPapua=c(243L, 500L, 1000L))
 
 AG_sim_stats <- list()
 
@@ -234,13 +239,15 @@ obs_corehaps <- read_tsv('/gpfs/gibbs/pi/tucci/pfr8/Friedlaender/AnalysisFreezes
 #Read in the full set of simulated archaic core haplotypes:
 cat("Reading in simulated archaic core haplotype data\n")
 sim_corehaps <- bind_rows(lapply(sim_nums, read_sim_corehaps))
-n_sim_corehaps <- nrow(sim_corehaps)
+n_sim_corehaps <- sim_corehaps %>%
+   group_by(Simulation) %>%
+   summarize(sim_all_corehaps=n())
 #Read in the full set of simulated selection scan scores:
 cat("Reading in simulated selection scan windows\n")
 sim_pbs_xpehh_df <- bind_rows(lapply(sim_nums, prep_sim_predictors, w_size=w_size, w_step=w_step))
-sim_predictors_df <- sim_pbs_xpehh_df %>%
-   select(pbs, max_xpehh)
-n_sim_selscan_windows <- nrow(sim_pbs_xpehh_df)
+n_sim_selscan_windows <- sim_pbs_xpehh_df %>%
+   group_by(Simulation) %>%
+   summarize(sim_all_windows=n())
 
 for (AG in AGs) {
    gc()
@@ -392,7 +399,10 @@ for (AG in AGs) {
       filter(TractFreq >= corehap_freq_threshold) %>%
       rename(group=Simulation) %>%
       select(chr, start, end, group)
-   n_sim_highfreq_corehaps <- nrow(sim_highfreq_corehaps)
+   n_sim_highfreq_corehaps <- sim_highfreq_corehaps %>%
+      rename(Simulation=group) %>%
+      group_by(Simulation) %>%
+      summarize(sim_signif_corehaps=n())
 
    #Predict -log10(p_FCS) for all the simulated windows:
    cat("Predicting -log10(p_FCS) for simulated windows using the", AG, "linear interpolation model combo\n")
@@ -420,14 +430,20 @@ for (AG in AGs) {
          filter(neglog10_pFCScm >= thresh) %>%
          rename(group=Simulation) %>%
          select(chr, start, end, group)
-      n_sim_signif_selscan_windows <- nrow(AG_sim_signif_windows)
+      n_sim_signif_selscan_windows <- AG_sim_signif_windows %>%
+         rename(Simulation=group) %>%
+         group_by(Simulation) %>%
+         summarize(sim_signif_windows=n())
       #We already identified high frequency core haplotypes in the simulated data above
       # (sim_highfreq_corehaps), so now we can count overlaps between the two sets of
       # intervals:
       cat("Counting overlaps between simulated >=", round(corehap_freq_threshold*100, 2), "% freq. core haplotypes and simulated selection scan windows with -log10(p_FCS) >=", thresh, "(", AG, "thresholds )\n")
       n_sim_intersect_windows <- sim_highfreq_corehaps %>%
-         pmap_int(count_overlapping_windows, AG_sim_signif_windows) %>%
-         sum()
+         rowwise() %>%
+         mutate(n_overlap=count_overlapping_windows(chr, start, end, group, AG_sim_signif_windows)) %>%
+         rename(Simulation=group) %>%
+         group_by(Simulation) %>%
+         summarize(sim_signif_overlaps=sum(n_overlap))
       #Do the same for the observed windows and high frequency core haplotypes:
       cat("Counting overlaps between observed >=", round(corehap_freq_threshold*100, 2), "% freq. core haplotypes and observed selection scan windows with -log10(p_FCS) >=", thresh, "(", AG, "thresholds )\n")
       n_AG_intersect_windows <- AG_highfreq_corehaps %>%
@@ -435,16 +451,61 @@ for (AG in AGs) {
          sum()
 
       #Compile all the performance statistics for this AG:
-      AG_sim_stats[[paste(AG, thresh)]] <- data.frame(AnalysisGroup=AG,
-                                                      SelScanThresh=thresh,
-                                                      Statistic=c("FPR",
-                                                                  "FDR"),
-                                                      HighFreqCorehap=c(n_sim_highfreq_corehaps/n_sim_corehaps,
-                                                                        (n_sim_highfreq_corehaps/n_sim_corehaps)/(n_AG_highfreq_corehaps/n_AG_corehaps)),
-                                                      SelScan=c(n_sim_signif_selscan_windows/n_sim_selscan_windows,
-                                                                (n_sim_signif_selscan_windows/n_sim_selscan_windows)/(n_AG_signif_selscan_windows/n_AG_selscan_windows)),
-                                                      Combined=c(n_sim_intersect_windows/n_sim_selscan_windows,
-                                                                 (n_sim_intersect_windows/n_sim_selscan_windows)/(n_AG_intersect_windows/n_AG_selscan_windows)))
+      hit_counts <- data.frame(Simulation=sim_nums,
+                               obs_all_corehaps=n_AG_corehaps,
+                               obs_all_windows=n_AG_selscan_windows,
+                               obs_signif_corehaps=n_AG_highfreq_corehaps,
+                               obs_signif_windows=n_AG_signif_selscan_windows,
+                               obs_signif_overlaps=n_AG_intersect_windows) %>%
+         left_join(n_sim_corehaps, by="Simulation") %>%
+         left_join(n_sim_selscan_windows, by="Simulation") %>%
+         left_join(n_sim_highfreq_corehaps, by="Simulation") %>%
+         left_join(n_sim_signif_selscan_windows, by="Simulation") %>%
+         left_join(n_sim_intersect_windows, by="Simulation") %>%
+         mutate(obs_all_overlaps=obs_all_windows,
+                sim_all_overlaps=sim_all_windows) %>%
+         pivot_longer(cols=-c(Simulation),
+                      names_sep="_",
+                      names_to=c("Source", "Signif", "Stage"),
+                      values_to="Count") %>%
+         pivot_wider(id_cols=c(Simulation, Stage),
+                     names_from=c(Source, Signif),
+                     names_sep="_",
+                     values_from=Count) %>%
+         mutate(across(!c(Simulation, Stage), ~ replace_na(.x, 0)))
+      hit_counts %>%
+         tibble() %>%
+         print(n=Inf, width=Inf)
+      AG_sim_stats[[paste(AG, thresh)]] <- hit_counts %>%
+         mutate(FPR=sim_signif/sim_all,
+                P_O=obs_signif/obs_all) %>%
+         mutate(FDR=FPR/P_O) %>%
+         dplyr::select(Simulation, Stage, FPR, FDR) %>%
+         pivot_longer(cols=c(FPR, FDR),
+                      names_to="Statistic",
+                      values_to="Value") %>%
+         mutate(Stage=case_when(Stage == "corehaps" ~ "HighFreqCorehap",
+                                Stage == "windows" ~ "SelScan",
+                                Stage == "overlaps" ~ "Combined",
+                                TRUE ~ Stage)) %>%
+         pivot_wider(id_cols=c(Simulation, Statistic),
+                     names_from=Stage,
+                     values_from=Value) %>%
+         mutate(AnalysisGroup=AG,
+                SelScanThresh=thresh) %>%
+         left_join(Nb_Papua, by="Simulation") %>%
+         dplyr::select(AnalysisGroup, NbPapua, SelScanThresh, Statistic,
+                       HighFreqCorehap, SelScan, Combined)
+#      AG_sim_stats[[paste(AG, thresh)]] <- data.frame(AnalysisGroup=AG,
+#                                                      SelScanThresh=thresh,
+#                                                      Statistic=c("FPR",
+#                                                                  "FDR"),
+#                                                      HighFreqCorehap=c(n_sim_highfreq_corehaps/n_sim_corehaps,
+#                                                                        (n_sim_highfreq_corehaps/n_sim_corehaps)/(n_AG_highfreq_corehaps/n_AG_corehaps)),
+#                                                      SelScan=c(n_sim_signif_selscan_windows/n_sim_selscan_windows,
+#                                                                (n_sim_signif_selscan_windows/n_sim_selscan_windows)/(n_AG_signif_selscan_windows/n_AG_selscan_windows)),
+#                                                      Combined=c(n_sim_intersect_windows/n_sim_selscan_windows,
+#                                                                 (n_sim_intersect_windows/n_sim_selscan_windows)/(n_AG_intersect_windows/n_AG_selscan_windows)))
       AG_sim_stats[[paste(AG, thresh)]] %>%
          tibble() %>%
          print(n=Inf, width=Inf)
@@ -453,7 +514,7 @@ for (AG in AGs) {
    rm(pbs_xpehh_fcs_df, training_eval_split, training_cv_set, eval_set)
    rm(training_cv_models, training_cv_metrics)
    rm(pbsn1_final_model, max_xpehh_final_model, final_model_preds)
-   rm(pbsn1_full_model, max_xpehh_full_model)
+#   rm(pbsn1_full_model, max_xpehh_full_model)
    rm(sim_predictions_df, AG_sim_signif_windows)
 }
 
