@@ -1,0 +1,6 @@
+locus	refhap	variant_source_levels	variant_source_labels	rel_panel_heights
+GBP	Denisova_1	Core,Sprime,Pilot,emVar	Core,Sprime,Pilot,emVars	2.8,0.8,0.8,2.2,3,19
+TNFAIP3	Denisova_1	Core,Sprime,Pilot,emVar	Core,Sprime,Pilot,emVars	2.8,0.8,0.8,2.2,3,19
+TRPS1	Denisova_1	Core,Sprime,Pilot,emVar	Core,Sprime,Pilot,emVars	2.8,0.8,0.8,2.2,3,19
+OAS	UV0295_1	CoreNea,CoreDen,SprimeDen,Pilot,emVar,Vespasiani,Banday,Gittelman	NEA Core,DEN Core,DEN Sprime,Pilot,emVars,Vespasiani 2022,Banday 2022,Gittelman 2016	2.8,0.8,0.8,4.4,3,19
+JAK1	Denisova_1	Core,Sprime,Pilot,emVar	Core,Sprime,Pilot,emVars	2.8,0.8,0.8,2.2,3,19
