@@ -29,15 +29,19 @@ Many of these plots were made using:
 
 ## Demographic inference
 
+### ROH
+
+[Figure 1 panel E and supplementary figures S27-S31](/Analysis_Pipelines/PIB_ROH/ROH_plots_Sci2024.Rmd)
+
 ### SMC++
 
 [Figure 1 panel F and supplementary figures S32-S34](/Plotting/PIBv1_smcpp_20231006.R)
 
 ## Archaic introgression
 
-### Match rate mixture models
-
 [Figure 2 panels A,B,C,E and Supplementary figures S45-S48,S52-S55](/Plotting/PIBv1_Sprime_FiguresTables_maxgap0redo_20250203.R)
+
+[Figure 2 panel D](/Analysis_Pipelines/PIB_ROH/ROH_plots_Sci2024.Rmd) (see the end of the .Rmd file, as this also contains the ROH plots mentioned above)
 
 [Supplementary figure S56](/Plotting/PIBv1_Sprime_NEAGMMBMM_20230604.R)
 

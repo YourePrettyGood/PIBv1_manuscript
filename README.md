@@ -2,7 +2,7 @@
 
 ## Repository organization
 
-This repository is organized into Processing Pipelines, Analysis Pipelines, Instructions, and Configs subdirectories.
+This repository is organized into Processing Pipelines, Analysis Pipelines, Plotting, Configs, and Instructions subdirectories.
 
 ### [Processing pipelines](/PROCESSING.md)
 
@@ -18,7 +18,10 @@ by Patrick F. Reilly.
 The analysis pipelines were used for any analysis of the jointly called and
 filtered dataset. Many analysis pipelines are provided as Nextflow pipelines
 (mostly DSL1, some as DSL2), while some analyses performed by other co-authors
-will be provided as submodules pointing to their respective repositories.
+are provided as submodules pointing to their respective repositories.
+The [`ANALYSIS.md`](/ANALYSIS.md) document provides a lot of details about
+the inputs, commands, thought process, and choices involved in each analysis,
+so please read that for details.
 
 Analyses include:
 
@@ -26,17 +29,31 @@ Analyses include:
 - Calculation of VCF statistics (including mutation matrix, Ts/Tv, per-sample stats, Mendelian error rate from trios, genotype concordance with array data) (DSL1: `VCF_stats.nf`)
 - Preparation of MAF-filtered and LD-pruned PLINK files for other analyses (DSL1: `MAFLD_VCF.nf`)
 - Preliminary relatedness and contamination analyses (DSL1: `BAM_contam_QC.nf`)
+- Novel and population-private variant analysis
 - ADMIXTURE analysis (DSL1: `ADMIXPIPE.nf`, DSL2: `ADMIXTURE.nf`)
 - Principal components analysis (PCA as an R script: `SNPRelate_analyses.R`)
+- Population structure analyses with ADMIXTOOLS (outgroup-f<sub>3</sub>, f<sub>4</sub>)
+- Local ancestry inference with RFMix (see Chang's repository)
+- ROH analysis (see Audrey's repository)
 - Demographic inference (SMC++ in DSL1: `smcpp.nf`, MSMC2 including cross-coalescence and MSMC-IM in DSL2: `msmc2.nf`)
-- Archaic introgression (Sprime in DSL1: `sprime.nf`, Core haplotypes in DSL1: `adaptiveintrogression.nf`, phased projections of Sprime tracts in DSL1: `sprime_phased_projections.nf`, ArchaicSeeker2.0 and MultiWaver3.1 in DSL1: `archaicseeker.nf`)
-- Gaussian and Beta mixture model analyses of Sprime tract match rates (R script: `SprimeGMMBMM.R`)
+- Archaic introgression (Sprime in DSL1: `sprime.nf`, Core haplotypes in DSL1: `adaptiveintrogression.nf`, phased projections of Sprime tracts in DSL1: `sprime_phased_projections.nf`, ArchaicSeeker2.0 and MultiWaver3.1 in DSL1: `archaicseeker.nf`, and see Chang's repository for D and f<sub>4</sub> ratio statistics as well as PCA projection analyses)
+- Gaussian and Beta mixture model analyses of Sprime tract match rates (R script: `SprimeGMMBMM.R` and related scripts for supplementary figures)
+- Adaptive introgression scans (see Dani's repository, and the performance evaluation section including the simulation pipeline in DSL2: `adaptive_introgression_simulations.nf`)
 - Variant effect prediction by Ensembl VEP (DSL2: `VEP.nf`)
+- Functional genomics analyses (see Stephen's repository)
+- MPRA analyses (see Stephen's repository)
 - Generation of haplotype plots (DSL2: `haplotype_plot.nf`)
 
 Note that the ArchaicSeeker2.0 and MSMC2/MSMC-IM analyses are not included in the current manuscript.
 Also, the `callable_masks.nf` pipeline was run with the intent of using the
 outputs for ARGWeaver, but that didn't make it into the manuscript.
+
+### [Plotting scripts](/PLOTS.md)
+
+Scripts used for generating most of the main text and supplementary figures
+are linked in the [`PLOTS.md`](/PLOTS.md) document. Some figures were
+composited and/or reformatted for publication using Adobe Illustrator, so
+I've tried to annotate those in the document or in their own scripts.
 
 ### Configs
 
@@ -59,8 +76,8 @@ subdirectory.
 
 In general, these Nextflow pipelines will all work with Nextflow 22.10.7,
 though make sure to set `NXF_DEFAULT_DSL=1` for any DSL1 pipelines. The
-DSL2 pipelines were run with Nextflow 22.10.7b5853, while the DSL1 pipelines
-were run with either 21.10.5b5658 or 21.10.3b5655.
+DSL2 pipelines were run with Nextflow 22.10.7b5853 or 24.10.2b9532, while
+the DSL1 pipelines were run with either 21.10.5b5658 or 21.10.3b5655.
 
 Dependencies of each pipeline are generally specified by the `params.mod_*`
 variables in the `.config` file, though these are set up as modulefiles
@@ -82,16 +99,16 @@ NXF_OPTS="-Xms500M -Xmx900M" /usr/bin/time -v nextflow -c [path to .config file]
 or if run in it's own submitted job:
 
 ```bash
-NXF_OPTS="-Xms500M -Xmx900M" /usr/bin/time -v nextflow -c [path to .config file] run -ansi-log false [absolute path to .nf pipeline script] -profile [comma-separated list of profiles] -w [scratch/working directory] 2> [STDERR log] > [STDOUT log]
+NXF_OPTS="-Xms500M -Xmx3500M" /usr/bin/time -v nextflow -c [path to .config file] run -ansi-log false [absolute path to .nf pipeline script] -profile [comma-separated list of profiles] -w [scratch/working directory] 2> [STDERR log] > [STDOUT log]
 ```
 
 Note that you will need to add `NXF_DEFAULT_DSL=1` as a prefix for any DSL1
 pipelines when using Nextflow 22.x.
 
-You can set `-Xmx` to a larger value than `900M`, though most pipelines
+You can set `-Xmx` to a larger value than `900M` like `3500M`, though some pipelines
 shouldn't need more. Increasing `-Xmx` is generally only needed when the
 pipeline generates a lot of jobs (e.g. `adaptiveintrogression.nf` or `VEP.nf`).
-I set it to `900M` because our cluster would OOM kill the nextflow process
+I used to set it to `900M` because our cluster would OOM kill the nextflow process
 at 1 GB of RSS, and an OOM kill of the main nextflow process causes a dirty
 pipeline exit that does not resume correctly and truncates the log and cache.
 

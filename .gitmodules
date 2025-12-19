@@ -22,3 +22,6 @@
 [submodule "Analysis_Pipelines/ADMIXTOOLS_LAI_scripts"]
 	path = Analysis_Pipelines/ADMIXTOOLS_LAI_scripts
 	url = https://github.com/Chg-Liu/PIB_scripts
+[submodule "Analysis_Pipelines/PIB_ROH"]
+	path = Analysis_Pipelines/PIB_ROH
+	url = https://github.com/teriyakiaud/PIB_ROH

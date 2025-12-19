@@ -431,6 +431,8 @@ Note that the scripts and files used for this manuscript can be found under the
 
 Documentation for this step is a work in progress, these analyses were performed
 by Audrey Tjahjadi.
+Please see Audrey's [ROH scripts Github repository](https://github.com/teriyakiaud/PIB_ROH)
+for details and scripts, or see [the git submodule here](/Analysis_Pipelines/PIB_ROH/).
 
 ### SMC++
 
