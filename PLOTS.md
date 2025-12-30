@@ -57,6 +57,10 @@ Many of these plots were made using:
 
 [Supplementary figure S66](/Analysis_Pipelines/ReviewerResponses/Dani_results/PIBv1_pFCS_intersection_effect_20251210.R)
 
+[Figure 5B and Supplementary figures S68-S70](/Analysis_Pipelines/SelectionScans/PIBv1_scans/run_gaia_selection/Oceanic_pops_FCS/run_merged-windows_10kb_HEATMAP.R)
+
+[Supplementary figures S71-S74](/Analysis_Pipelines/SelectionScans/PIBv1_scans/run_gaia_selection/Oceanic_pops_FCS/run_plot_manhattan_Fcs_loop.R)
+
 [Supplementary figure S76](/Analysis_Pipelines/ReviewerResponses/haplotype_divergence_plot.R) (see also [the description here](/ANALYSIS.md#haplotype-divergence-at-trps1))
 
 Supplementary figures S77, S88, S90, S92, and S94 were made using [haplotype_plot.R](/Analysis_Pipelines/haplotype_plot.R) as run in the [haplotype_plot.nf](/Analysis_Pipelines/haplotype_plot.nf) pipeline.
