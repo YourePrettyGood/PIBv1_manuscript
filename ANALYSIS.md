@@ -1160,11 +1160,21 @@ for each of PBSn1 and XP-EHH.
 > For clarity (since the formula has been [misstated](https://doi.org/10.1016/j.cub.2019.07.013) in the literature
 > [multiple](https://doi.org/10.1038/s41586-021-03236-5) [times](https://doi.org/10.1038/s41467-024-47735-1)),
 > Fisher's combined score is evaluated as the following:
+> 
 > Given $`s`$ independent tests and corresponding p-values ($`p_i`$) that are
 > distributed uniformly in the interval $`[0,1]`$ under the null hypothesis,
 > the FCS statistic $`X^2 = -2 \sum_{i=1}^{s} ln(p_i)`$
 > is distributed as a chi-squared random variate with $`2s`$ degrees of freedom.
+> 
 > Thus, the FCS p-value is calculated as $`p_{FCS} = Pr(\chi^{2} \ge X^{2}, df=2s)`$.
+
+Windows with $`-log_{10}(p_{FCS}) \ge 2`$ that overlapped high-frequency
+archaic core haplotypes were then retained, and such windows within 10 kbp
+of each other were merged together so long as they arose in the same
+target population and from the same archaic origin. Windows were annotated
+with any overlapping protein-coding genes (or if none overlapped, then the
+closest protein-coding gene) from the GENCODE release 38 annotation lifted
+over to hs37d5.
 
 In response to a reviewer comment, we compared the adaptive introgression
 candidate regions identified using our method with windows identified as
