@@ -179,7 +179,7 @@ resources for human polymorphic variants:
 
 These aren't necessarily the latest versions of each dataset, but are
 relatively recent. In the case of the 1000 Genomes Project, the phase 3
-variant calls are widely used compared to the NYGC 30x ("phase 4") calls
+variant calls are widely used as compared to the NYGC 30x ("phase 4") calls
 from [Byrska-Bishop et al. 2022](https://doi.org/10.1016/j.cell.2022.08.004),
 although that is starting to change. For dbSNP, this build was selected
 in early 2021 while I was developing the variant calling Nextflow pipelines,
@@ -392,8 +392,8 @@ as implemented in [PLINK 2.00 alpha 3.6](https://www.cog-genomics.org/plink/2.0/
 We used the "MAFLD" dataset as input. We then constructed a $`P{\times}P`$ matrix of these
 pairwise $`F_{ST}`$ values (where $P$ is the number of populations) to serve
 as a distance matrix and used the `nj()` function in the [ape](https://cran.r-project.org/web/packages/ape/index.html)
-to construct a neighbour-joining tree from this distance matrix using the
-method of Saitou and Nei (1987) MBE. The resulting tree (output in Newick
+package to construct a neighbour-joining tree from this distance matrix using
+the method of Saitou and Nei (1987) MBE. The resulting tree (output in Newick
 format using `write.tree()`) was then imported into [iTOL](https://itol.embl.de/)
 for visualization.
 
@@ -433,6 +433,29 @@ Documentation for this step is a work in progress, these analyses were performed
 by Audrey Tjahjadi.
 Please see Audrey's [ROH scripts Github repository](https://github.com/teriyakiaud/PIB_ROH)
 for details and scripts, or see [the git submodule here](/Analysis_Pipelines/PIB_ROH/).
+
+In brief, Audrey used the [ROH dataset](#roh) described above and ran PLINK
+to detect runs of homozygosity with the following command:
+```bash
+plink --threads 10 \
+--not-chr 23 \
+--homozyg \
+--homozyg-density 5000 \
+--homozyg-gap 5000 \
+--homozyg-snp 50 \
+--homozyg-window-het 0 \
+--homozyg-window-missing 5 \
+--homozyg-window-snp 50 \
+--homozyg-window-threshold 0.05 \
+--bfile [ROH input PLINK prefix] \
+--out PIBv1_global_autosomes_50_het0_no_Vanuatu
+```
+
+Audrey then analyzed the results from the `PIBv1_global_autosomes_50_het0_no_Vanuatu.hom`
+and `PIBv1_global_autosomes_50_het0_no_Vanuatu.hom.indiv` files in R
+(see the [relevant R markdown notebook](/Analysis_Pipelines/PIB_ROH/ROH_plots_Sci2024.Rmd)).
+ROH overlapping the centromeric regions as identified by UCSC for hg19 were
+excluded from further analyses.
 
 ### SMC++
 
@@ -735,8 +758,8 @@ waves using MultiWaver3.1 as well as naïve Bayesian estimators on the genetic
 map lengths of phased projections. Values of `params.tract_max_gap` larger than
 0 produced a strong downward bias on the age estimates of introgression waves
 relative to those found from a parallel ArchaicSeeker2.0 + MultiWaver3.1
-analysis. However, we aren't certain if this is an indication of the projections
-at `params.tract_max_gap = 0` being more accurate or if the MultiWaver3.1
+analysis. However, we weren't certain if this was an indication of the projections
+at `params.tract_max_gap = 0` being more accurate or the MultiWaver3.1
 algorithm being biased toward older time estimates by an excess of short
 tracts. To a first approximation, MultiWaver3.1 fits a mixture model of
 exponentials, but this is a very difficult problem that runs into issues of
@@ -1013,8 +1036,8 @@ if that seems like a reasonable assumption, then it should work. We chose to
 follow this approach in the manuscript, as Sprime was run with target groups
 being analysis groups/populations, so sample sizes were well below 100. If you
 were to run this pipeline on the 1000 Genomes Project dataset, you could just
-calculate $`r^2<`$ on the target populations themselves, since those
-sample sizes are in the hundreds per population.
+calculate $`r^2`$ on the target populations themselves, since those
+sample sizes are around 50+ per population.
 
 Once we have the pairs of Sprime sites with $`r^2 \ge 0.3`$, we
 construct a simple undirected graph where Sprime sites are nodes and site pairs
@@ -1023,6 +1046,15 @@ as the connected components of this graph, and the R script outputs sites
 labeled by the connected component in which they are found (a simple integer
 label). This simple label is then translated into a core haplotype ID by
 prepending with the Sprime target group, chromosome number, and archaic origin.
+
+> [!NOTE]
+> Taking all connected components as core haplotypes introduces a small number
+> of artifacts worth noting, but that have little impact on downstream results:
+> There will be some core haplotypes that appear to span most of a chromosome,
+> and a smattering of core haplotypes consisting of one or a few variants. Both
+> types of artifacts tend to have low frequency estimates, so get ignored, but
+> future users of this method might consider filtering these artifacts out before
+> estimating quantile thresholds for core haplotype frequency.
 
 We then perform some post-processing of these core haplotypes:
 
@@ -1117,6 +1149,23 @@ for details and scripts, or see [the git submodule here](/Analysis_Pipelines/Sel
 Note that the scripts and files used for this manuscript can be found under the
 `PIBv1_scans` subdirectory along with a corresponding README.
 
+In brief, Dani calculated PBSn1 in windows and XP-EHH per variant for each
+Oceanic target population across all autosomes, calculated quantile ranks
+for the PBSn1 and XP-EHH scores, windowed the XP-EHH quantile ranks to
+match the PBSn1 windows (and taking the maximum XP-EHH quantile rank in
+that window), then calculated a Fisher's combined score for each window
+based on an "empirical p-value" (i.e. simply 1 minus the quantile rank)
+for each of PBSn1 and XP-EHH.
+> [!IMPORTANT]
+> For clarity (since the formula has been [misstated](https://doi.org/10.1016/j.cub.2019.07.013) in the literature
+> [multiple](https://doi.org/10.1038/s41586-021-03236-5) [times](https://doi.org/10.1038/s41467-024-47735-1)),
+> Fisher's combined score is evaluated as the following:
+> Given $`s`$ independent tests and corresponding p-values ($`p_i`$) that are
+> distributed uniformly in the interval $`[0,1]`$ under the null hypothesis,
+> the FCS statistic $`X^2 = -2 \sum_{i=1}^{s} ln(p_i)`$
+> is distributed as a chi-squared random variate with $`2s`$ degrees of freedom.
+> Thus, the FCS p-value is calculated as $`p_{FCS} = Pr(\chi^{2} \ge X^{2}, df=2s)`$.
+
 In response to a reviewer comment, we compared the adaptive introgression
 candidate regions identified using our method with windows identified as
 adaptive introgression candidates using the U and Q95 statistics of
@@ -1162,15 +1211,18 @@ the false positive rate, of our adaptive introgression detection approach
 using neutral coalescent simulations. We first established a Nextflow pipeline
 to perform coalescent simulations of the 22 autosomes using stdpopsim with the
 msprime engine based on the `PapuansOutOfAfrica_10J19` demographic model from
-[Jacobs et al. 2019](https://doi.org/10.1016/j.cell.2019.02.035). The pipeline
-generates VCFs from the tree sequences produced by msprime 1.3.4 using tskit 0.6.4
-and runs trimmed and concatenated versions of the `sprime.nf` and `adaptiveintrogression.nf`
-pipelines used in the manuscript, as well as running XP-EHH and windowed PBSn1
-scans using `xpehh_cli.py` and `pbs_cli.py`, which evaluate the two selection
-statistics in an equivalent way to Dani's pipeline. Thus, the output of this
-simulation pipeline is a set of archaic core haplotypes and their frequencies,
-as well as XP-EHH and windowed PBSn1 values for one whole genome under the
-neutral coalescent.
+[Jacobs et al. 2019](https://doi.org/10.1016/j.cell.2019.02.035). The Jacobs
+et al. 2019 model is essentially the only standardized demographic model at
+present that includes both Denisovan introgression and a Near Oceanic population,
+hence it is the most appropriate model available for the populations in our study.
+The pipeline generates VCFs from the tree sequences produced by msprime 1.3.4
+using tskit 0.6.4 and runs trimmed and concatenated versions of the `sprime.nf`
+and `adaptiveintrogression.nf` pipelines used in the manuscript, as well as
+running XP-EHH and windowed PBSn1 scans using `xpehh_cli.py` and `pbs_cli.py`,
+which evaluate the two selection statistics in an equivalent way to Dani's
+pipeline. Thus, the output of this simulation pipeline is a set of archaic
+core haplotypes and their frequencies, as well as XP-EHH and windowed PBSn1
+values for one whole genome under the neutral coalescent.
 
 We did not add any further bottlenecks along the "Papuan" lineage in the
 model, as the "Papuan" lineage already had a very small Ne, and tuning
